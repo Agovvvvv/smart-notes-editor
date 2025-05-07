@@ -1,0 +1,30 @@
+# Python virtual environment
+venv/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Application specific
+*.log
+.env
+api_keys.json
+
+# Temporary files
+*.tmp

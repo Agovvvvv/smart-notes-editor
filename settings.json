@@ -1,0 +1,26 @@
+{
+    "window": {
+        "width": 800,
+        "height": 600,
+        "x": 302,
+        "y": 112
+    },
+    "editor": {
+        "font_family": "Arial",
+        "font_size": 12,
+        "tab_size": 4,
+        "auto_save": false,
+        "auto_save_interval": 5
+    },
+    "files": {
+        "default_save_directory": "/Users/nick/Desktop/Agov_Intelligence/Projects/gestore_appunti/data",
+        "default_extension": "txt",
+        "recent_files": []
+    },
+    "appearance": {
+        "theme": "light"
+    },
+    "ai": {
+        "model": "facebook/bart-large-cnn"
+    }
+}

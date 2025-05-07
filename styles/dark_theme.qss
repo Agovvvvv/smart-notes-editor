@@ -1,0 +1,148 @@
+/* Dark Theme for Smart Contextual Notes Editor */
+
+/* Main application window */
+QMainWindow {
+    background-color: #2D2D30;
+    color: #FFFFFF;
+}
+
+/* Menu bar */
+QMenuBar {
+    background-color: #1E1E1E;
+    color: #FFFFFF;
+}
+
+QMenuBar::item {
+    background-color: transparent;
+    padding: 4px 10px;
+}
+
+QMenuBar::item:selected {
+    background-color: #3E3E40;
+    color: #FFFFFF;
+}
+
+QMenuBar::item:pressed {
+    background-color: #007ACC;
+    color: #FFFFFF;
+}
+
+/* Menu */
+QMenu {
+    background-color: #1E1E1E;
+    color: #FFFFFF;
+    border: 1px solid #3E3E40;
+}
+
+QMenu::item {
+    padding: 5px 30px 5px 20px;
+}
+
+QMenu::item:selected {
+    background-color: #3E3E40;
+    color: #FFFFFF;
+}
+
+/* Text edit */
+QTextEdit {
+    background-color: #1E1E1E;
+    color: #FFFFFF;
+    border: 1px solid #3E3E40;
+    selection-background-color: #264F78;
+    selection-color: #FFFFFF;
+    font-family: "Consolas", monospace;
+    font-size: 10pt;
+}
+
+/* Status bar */
+QStatusBar {
+    background-color: #007ACC;
+    color: #FFFFFF;
+    padding: 2px;
+}
+
+/* Scroll bars */
+QScrollBar:vertical {
+    border: none;
+    background-color: #2D2D30;
+    width: 10px;
+    margin: 0px;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #3E3E40;
+    min-height: 20px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #007ACC;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollBar:horizontal {
+    border: none;
+    background-color: #2D2D30;
+    height: 10px;
+    margin: 0px;
+}
+
+QScrollBar::handle:horizontal {
+    background-color: #3E3E40;
+    min-width: 20px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background-color: #007ACC;
+}
+
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+
+/* Dialog boxes */
+QDialog {
+    background-color: #2D2D30;
+    color: #FFFFFF;
+}
+
+/* Buttons */
+QPushButton {
+    background-color: #3E3E40;
+    color: #FFFFFF;
+    border: 1px solid #3E3E40;
+    padding: 5px 15px;
+    border-radius: 2px;
+}
+
+QPushButton:hover {
+    background-color: #505050;
+    border: 1px solid #505050;
+}
+
+QPushButton:pressed {
+    background-color: #007ACC;
+    border: 1px solid #007ACC;
+}
+
+/* Message boxes */
+QMessageBox {
+    background-color: #2D2D30;
+    color: #FFFFFF;
+}
+
+/* File dialog */
+QFileDialog {
+    background-color: #2D2D30;
+    color: #FFFFFF;
+}
+
+/* Tooltips */
+QToolTip {
+    background-color: #1E1E1E;
+    color: #FFFFFF;
+    border: 1px solid #3E3E40;
+    padding: 2px;
+}
