@@ -11,6 +11,10 @@ import os
 import time
 from typing import Dict, List, Optional, Tuple, Union
 
+import requests
+import json
+from transformers import pipeline # Added import
+
 # Set up logging
 logging.basicConfig(
     level=logging.INFO,
@@ -18,316 +22,278 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Global variables to store loaded models
-_summarizer = None
-_tokenizer = None
-_model_loading_time = 0
-_current_model_name = None
-
-# Available summarization models with their characteristics
-SUMMARIZATION_MODELS = {
-    "google/pegasus-xsum": {
-        "description": "Fast and efficient summarization model by Google",
-        "max_length": 512,
-        "quality": "High",
-        "speed": "Fast"
-    },
-    "facebook/bart-large-cnn": {
-        "description": "BART model fine-tuned on CNN articles",
-        "max_length": 1024,
-        "quality": "Good",
-        "speed": "Medium"
-    },
-    "sshleifer/distilbart-cnn-12-6": {
-        "description": "Distilled version of BART, smaller and faster",
-        "max_length": 1024,
-        "quality": "Medium",
-        "speed": "Fast"
-    },
-    "philschmid/flan-t5-base-samsum": {
-        "description": "T5 model fine-tuned on dialogue summarization",
-        "max_length": 512,
-        "quality": "High for conversations",
-        "speed": "Medium"
-    }
-}
-
-# Default model
-DEFAULT_MODEL = "google/pegasus-xsum"
-
-def initialize_ai_models(model_name=None, force_reload=False, progress_callback=None):
+def summarize_text_local(text: str, model_id: str = "facebook/bart-large-cnn", progress_callback=None):
     """
-    Initialize AI models for summarization and NLP tasks.
-    
+    Generate a summary of the given text using a local Hugging Face model via pipeline.
+
     Args:
-        model_name (str): Name of the model to load. If None, uses the default model
-        force_reload (bool): Whether to force reload models even if already loaded
-        progress_callback (callable): Optional callback function to report progress
-        
-    Returns:
-        bool: True if initialization was successful, False otherwise
-    """
-    global _summarizer, _tokenizer, _model_loading_time, _current_model_name
-    
-    # Use default model if none specified
-    if model_name is None:
-        model_name = DEFAULT_MODEL
-    
-    # If models are already loaded with the requested model and we're not forcing a reload, return immediately
-    if _summarizer is not None and _current_model_name == model_name and not force_reload:
-        logger.info(f"AI model '{model_name}' already loaded, skipping initialization")
-        return True
-    
-    try:
-        # Import transformers here to avoid loading it unless needed
-        from transformers import pipeline, AutoTokenizer
-        
-        if progress_callback:
-            progress_callback(10)
-            
-        logger.info(f"Loading summarization model '{model_name}'...")
-        start_time = time.time()
-        
-        # Load tokenizer
-        _tokenizer = AutoTokenizer.from_pretrained(model_name)
-        
-        if progress_callback:
-            progress_callback(40)
-            
-        # Load summarization pipeline
-        _summarizer = pipeline(
-            "summarization",
-            model=model_name,
-            tokenizer=_tokenizer
-        )
-        
-        # Store the current model name
-        _current_model_name = model_name
-        
-        if progress_callback:
-            progress_callback(90)
-            
-        _model_loading_time = time.time() - start_time
-        logger.info(f"Summarization model '{model_name}' loaded in {_model_loading_time:.2f} seconds")
-        
-        if progress_callback:
-            progress_callback(100)
-            
-        return True
-        
-    except ImportError as e:
-        logger.error(f"Error importing transformers library: {str(e)}")
-        logger.error("Please install the transformers library: pip install transformers")
-        return False
-        
-    except Exception as e:
-        logger.error(f"Error initializing AI models: {str(e)}")
-        return False
+        text (str): The text to summarize.
+        model_id (str, optional): The model ID to use for summarization. 
+                                Defaults to "facebook/bart-large-cnn".
+        progress_callback (callable, optional): Callback function to report progress.
 
-def generate_summary(text: str, model_name=None, max_length: int = 150, min_length: int = 40, 
-                    progress_callback=None) -> str:
-    """
-    Generate a summary of the given text.
-    
-    Args:
-        text (str): The text to summarize
-        model_name (str): Name of the model to use. If None, uses the current or default model
-        max_length (int): Maximum length of the summary in tokens
-        min_length (int): Minimum length of the summary in tokens
-        progress_callback (callable): Optional callback function to report progress
-        
     Returns:
-        str: The generated summary
-        
+        str: The generated summary.
+
     Raises:
-        ValueError: If the text is too short to summarize
-        RuntimeError: If the summarization model is not initialized
+        RuntimeError: If there's an error loading the model or during summarization.
     """
-    global _summarizer, _current_model_name
-    
-    # Check if text is too short to summarize
-    if len(text.split()) < 50:
-        logger.warning("Text too short to summarize meaningfully")
-        raise ValueError("Text is too short to generate a meaningful summary (less than 50 words)")
-    
-    # Initialize models if not already done or if a different model is requested
-    if _summarizer is None or (model_name is not None and model_name != _current_model_name):
-        logger.info(f"{'Initializing' if _summarizer is None else 'Switching to'} summarization model {model_name or DEFAULT_MODEL}...")
-        if progress_callback:
-            progress_callback(10)
-            
-        success = initialize_ai_models(
-            model_name=model_name,
-            progress_callback=lambda p: progress_callback(int(10 + p * 0.4))
-        )
-        if not success:
-            logger.error("Failed to initialize summarization model")
-            raise RuntimeError("Failed to initialize summarization model")
-    
-    if progress_callback:
-        progress_callback(50)
-    
+    logger.info(f"Starting local summarization with model: {model_id} for text of length: {len(text)}")
     try:
-        logger.info(f"Generating summary using model '{_current_model_name}' for text of length {len(text)}")
+        if progress_callback:
+            progress_callback(0)  # Indicate start
+
+        # Initialize the summarization pipeline
+        # device=-1 ensures CPU usage, change to 0 for GPU if available and configured
+        logger.info(f"Loading summarization model: {model_id}")
+        summarizer = pipeline("summarization", model=model_id, device=-1) 
+        logger.info(f"Model {model_id} loaded successfully.")
         
-        # Generate summary
-        summary = _summarizer(text, max_length=max_length, min_length=min_length, 
-                            do_sample=False)
+        # Perform summarization
+        # Parameters like max_length, min_length can be adjusted based on desired output
+        # These are common defaults for bart-large-cnn
+        summary_output = summarizer(text, max_length=150, min_length=30, do_sample=False)
+        
+        if not summary_output or not isinstance(summary_output, list) or "summary_text" not in summary_output[0]:
+            logger.error(f"Unexpected output format from summarization pipeline: {summary_output}")
+            raise RuntimeError("Local summarization failed to produce expected output format.")
+
+        summary = summary_output[0]["summary_text"]
+        logger.info(f"Local summary generated. Length: {len(summary)}")
         
         if progress_callback:
-            progress_callback(90)
-            
-        # Extract summary text
-        summary_text = summary[0]['summary_text']
-        
-        logger.info(f"Summary generated, length: {len(summary_text)}")
-        
-        if progress_callback:
-            progress_callback(100)
-            
-        return summary_text
-        
+            progress_callback(100)  # Indicate completion
+        return summary
+
+    except ImportError as e:
+        logger.error(f"Transformers library not found or import error: {e}")
+        if progress_callback: progress_callback(100)
+        raise RuntimeError(f"Transformers library not found. Please ensure it's installed. Error: {e}")
     except Exception as e:
-        logger.error(f"Error generating summary: {str(e)}")
-        raise RuntimeError(f"Error generating summary: {str(e)}")
+        logger.error(f"Error during local summarization with model {model_id}: {e}")
+        if progress_callback:
+            progress_callback(100)  # Indicate completion (with error)
+        import traceback
+        logger.error(traceback.format_exc())
+        raise RuntimeError(f"Failed to summarize text locally with model {model_id}: {e}")
 
-def chunk_long_text(text: str, chunk_size: int = 1000, overlap: int = 100) -> List[str]:
+def summarize_text_hf_api(text: str, api_key: str, model_id: str = "facebook/bart-large-cnn", timeout: int = 120, progress_callback=None):
     """
-    Split long text into smaller chunks for processing.
-    
-    Args:
-        text (str): The text to split
-        chunk_size (int): Maximum size of each chunk in characters
-        overlap (int): Number of characters to overlap between chunks
-        
-    Returns:
-        List[str]: List of text chunks
-    """
-    if len(text) <= chunk_size:
-        return [text]
-        
-    chunks = []
-    start = 0
-    
-    while start < len(text):
-        # Find the end of the chunk
-        end = min(start + chunk_size, len(text))
-        
-        # If we're not at the end of the text, try to find a sentence boundary
-        if end < len(text):
-            # Look for sentence boundaries (., !, ?) followed by a space
-            for sentence_end in ['. ', '! ', '? ']:
-                last_sentence = text[start:end].rfind(sentence_end)
-                if last_sentence != -1:
-                    end = start + last_sentence + 2  # +2 to include the sentence end and space
-                    break
-        
-        # Add the chunk to the list
-        chunks.append(text[start:end])
-        
-        # Move to the next chunk, with overlap
-        start = max(0, end - overlap)
-    
-    return chunks
+    Generate a summary of the given text using the Hugging Face Inference API.
 
-def summarize_long_text(text: str, model_name=None, max_length: int = 150, min_length: int = 40,
-                       progress_callback=None) -> str:
-    """
-    Summarize long text by chunking it and summarizing each chunk.
-    
     Args:
-        text (str): The text to summarize
-        model_name (str): Name of the model to use. If None, uses the current or default model
-        max_length (int): Maximum length of the final summary in tokens
-        min_length (int): Minimum length of the final summary in tokens
-        progress_callback (callable): Optional callback function to report progress
-        
+        text (str): The text to summarize.
+        api_key (str): The Hugging Face API key.
+        model_id (str, optional): The model ID to use for summarization. 
+                                Defaults to "facebook/bart-large-cnn".
+        timeout (int, optional): Timeout for the API request in seconds. Defaults to 120.
+        progress_callback (callable, optional): Callback function to report progress. 
+                                               Accepted for Worker compatibility.
+
     Returns:
-        str: The generated summary
+        str: The generated summary.
+
+    Raises:
+        ValueError: If the API key is missing.
+        RuntimeError: If there's an error calling the API or processing the response.
     """
-    # Check if text is short enough for direct summarization
-    if len(text) < 5000:  # Arbitrary threshold, adjust based on model capabilities
-        return generate_summary(text, model_name, max_length, min_length, progress_callback)
-    
-    logger.info(f"Text is long ({len(text)} chars), chunking for summarization")
-    
-    # Chunk the text
-    chunks = chunk_long_text(text)
-    
-    if progress_callback:
-        progress_callback(10)
-    
-    # Summarize each chunk
-    chunk_summaries = []
-    for i, chunk in enumerate(chunks):
-        logger.info(f"Summarizing chunk {i+1}/{len(chunks)}")
+    if not api_key:
+        logger.error("Hugging Face API key is missing.")
+        raise ValueError("API key for Hugging Face Inference API is required.")
+
+    api_url = f"https://api-inference.huggingface.co/models/{model_id}"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "inputs": text,
+        "parameters": { # Optional: include parameters like min_length, max_length if supported by model/task
+            # "min_length": 30, 
+            # "max_length": 150
+        },
+        "options": {
+            "wait_for_model": True # Wait if the model is not immediately available
+        }
+    }
+
+    logger.info(f"Calling Hugging Face API for summarization with model: {model_id}")
+    try:
+        if progress_callback:
+            progress_callback(0) # Indicate start
+
+        response = requests.post(api_url, headers=headers, json=payload, timeout=timeout)
+        response.raise_for_status()  # Raises an HTTPError for bad responses (4XX or 5XX)
         
-        try:
-            summary = generate_summary(
-                chunk,
-                model_name=model_name,
-                max_length=max(30, max_length // 2),  # Shorter summaries for chunks
-                min_length=min(20, min_length // 2)   # Shorter minimum for chunks
-            )
-            chunk_summaries.append(summary)
-            
+        result = response.json()
+        logger.debug(f"Hugging Face API response: {result}")
+
+        if isinstance(result, list) and result and "summary_text" in result[0]:
+            summary = result[0]["summary_text"]
+            logger.info(f"Summary received from Hugging Face API. Length: {len(summary)}")
             if progress_callback:
-                # Report progress from 10% to 80% based on chunk progress
-                progress = 10 + int(70 * (i + 1) / len(chunks))
-                progress_callback(progress)
-                
-        except Exception as e:
-            logger.warning(f"Error summarizing chunk {i+1}: {str(e)}")
-            # If we can't summarize a chunk, use the first few sentences
-            sentences = chunk.split('. ')
-            chunk_summaries.append('. '.join(sentences[:3]) + '.')
-    
-    # Combine chunk summaries
-    combined_summary = ' '.join(chunk_summaries)
-    
-    if progress_callback:
-        progress_callback(85)
-    
-    # Generate a final summary from the combined chunk summaries
+                progress_callback(100) # Indicate completion
+            return summary
+        elif isinstance(result, dict) and "summary_text" in result: # Some models might return a dict directly
+             summary = result["summary_text"]
+             logger.info(f"Summary received from Hugging Face API. Length: {len(summary)}")
+             if progress_callback:
+                progress_callback(100) # Indicate completion
+             return summary
+        elif isinstance(result, dict) and "error" in result:
+            logger.error(f"Hugging Face API returned an error: {result['error']}")
+            if progress_callback:
+                progress_callback(100) # Indicate completion (with error)
+            if "estimated_time" in result:
+                logger.info(f"Estimated time for model loading: {result['estimated_time']}s")
+                raise RuntimeError(f"Model {model_id} is currently loading, try again in {result['estimated_time']:.0f}s. API Error: {result['error']}")
+            raise RuntimeError(f"Hugging Face API error: {result['error']}")
+        else:
+            logger.error(f"Unexpected response format from Hugging Face API: {result}")
+            raise RuntimeError("Unexpected response format from Hugging Face API.")
+
+    except requests.exceptions.Timeout as e:
+        logger.error(f"Timeout during Hugging Face API call: {e}")
+        if progress_callback:
+            progress_callback(100) # Indicate completion (with error)
+        raise RuntimeError(f"API request timed out after {timeout} seconds.")
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"HTTP error during Hugging Face API call: {e.response.status_code} - {e.response.text}")
+        if progress_callback:
+            progress_callback(100) # Indicate completion (with error)
+        error_content = e.response.text
+        try:
+            error_json = json.loads(error_content)
+            if "error" in error_json:
+                error_message = error_json["error"]
+                if isinstance(error_message, list):
+                    error_message = ", ".join(error_message)
+                if "estimated_time" in error_json: # Model is loading
+                     raise RuntimeError(f"Model {model_id} is currently loading, try again in {error_json['estimated_time']:.0f}s. API Error: {error_message}") 
+                raise RuntimeError(f"Hugging Face API error ({e.response.status_code}): {error_message}")
+        except json.JSONDecodeError:
+            pass # Fallback to generic error if response is not JSON
+        raise RuntimeError(f"Hugging Face API request failed with status {e.response.status_code}: {e.response.text}")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error during Hugging Face API call: {e}")
+        if progress_callback:
+            progress_callback(100) # Indicate completion (with error)
+        raise RuntimeError(f"Failed to connect to Hugging Face API: {e}")
+    except json.JSONDecodeError as e:
+        logger.error(f"Error decoding JSON response from Hugging Face API: {e}")
+        if progress_callback:
+            progress_callback(100) # Indicate completion (with error)
+        raise RuntimeError("Invalid JSON response from Hugging Face API.")
+
+def generate_text_hf_api(text_prompt: str, api_key: str, model_id: str = "gpt2", timeout: int = 60, progress_callback=None, max_new_tokens: int = 150):
+    """
+    Generate text using the Hugging Face Inference API based on a prompt.
+
+    Args:
+        text_prompt (str): The prompt to generate text from.
+        api_key (str): The Hugging Face API key.
+        model_id (str, optional): The model ID to use for text generation. 
+                                Defaults to "gpt2".
+        timeout (int, optional): Timeout for the API request in seconds. Defaults to 60.
+        progress_callback (callable, optional): Callback function to report progress.
+        max_new_tokens (int, optional): The maximum number of new tokens to generate. Defaults to 150.
+
+    Returns:
+        str: The generated text.
+
+    Raises:
+        ValueError: If the API key is missing.
+        RuntimeError: If there's an error calling the API or processing the response.
+    """
+    if not api_key:
+        logger.error("Hugging Face API key is missing.")
+        raise ValueError("API key for Hugging Face Inference API is required.")
+
+    api_url = f"https://api-inference.huggingface.co/models/{model_id}"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "inputs": text_prompt,
+        "parameters": {
+            "max_new_tokens": max_new_tokens,
+            # Other parameters like temperature, top_p, etc., can be added here if needed
+            # "do_sample": True, 
+            # "temperature": 0.7,
+            # "top_k": 50
+        },
+        "options": {
+            "wait_for_model": True  # Wait if the model is not immediately available
+        }
+    }
+
+    logger.info(f"Calling Hugging Face API for text generation with model: {model_id}")
     try:
-        final_summary = generate_summary(
-            combined_summary,
-            model_name=model_name,
-            max_length=max_length,
-            min_length=min_length
-        )
-        
         if progress_callback:
-            progress_callback(100)
-            
-        return final_summary
+            progress_callback(0)  # Indicate start
+
+        response = requests.post(api_url, headers=headers, json=payload, timeout=timeout)
+        response.raise_for_status()  # Raises an HTTPError for bad responses (4XX or 5XX)
         
-    except Exception as e:
-        logger.warning(f"Error generating final summary: {str(e)}")
-        
-        # If final summarization fails, return the combined chunk summaries
+        result = response.json()
+        logger.debug(f"Hugging Face API response for text generation: {result}")
+
+        # Text generation APIs usually return a list with a dict containing 'generated_text'
+        if isinstance(result, list) and result and "generated_text" in result[0]:
+            generated_text = result[0]["generated_text"]
+            logger.info(f"Generated text received from Hugging Face API. Length: {len(generated_text)}")
+            if progress_callback:
+                progress_callback(100)  # Indicate completion
+            return generated_text
+        # Some models might return the generated text directly in a dictionary (less common for text-generation task)
+        elif isinstance(result, dict) and "generated_text" in result:
+            generated_text = result["generated_text"]
+            logger.info(f"Generated text received from Hugging Face API. Length: {len(generated_text)}")
+            if progress_callback:
+                progress_callback(100) # Indicate completion
+            return generated_text
+        elif isinstance(result, dict) and "error" in result:
+            logger.error(f"Hugging Face API returned an error: {result['error']}")
+            if progress_callback:
+                progress_callback(100)  # Indicate completion (with error)
+            if "estimated_time" in result:
+                logger.info(f"Estimated time for model loading: {result['estimated_time']}s")
+                raise RuntimeError(f"Model {model_id} is currently loading, try again in {result['estimated_time']:.0f}s. API Error: {result['error']}")
+            raise RuntimeError(f"Hugging Face API error: {result['error']}")
+        else:
+            logger.error(f"Unexpected response format from Hugging Face API for text generation: {result}")
+            raise RuntimeError("Unexpected response format from Hugging Face API for text generation.")
+
+    except requests.exceptions.Timeout as e:
+        logger.error(f"Timeout during Hugging Face API call for text generation: {e}")
         if progress_callback:
-            progress_callback(100)
-            
-        return combined_summary
-
-
-def get_available_models():
-    """
-    Get a list of available summarization models.
-    
-    Returns:
-        dict: Dictionary of available models with their descriptions
-    """
-    return SUMMARIZATION_MODELS
-
-
-def get_current_model():
-    """
-    Get the name of the currently loaded model.
-    
-    Returns:
-        str: Name of the current model, or None if no model is loaded
-    """
-    global _current_model_name
-    return _current_model_name
+            progress_callback(100)  # Indicate completion (with error)
+        raise RuntimeError(f"API request for text generation timed out after {timeout} seconds.")
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"HTTP error during Hugging Face API call for text generation: {e.response.status_code} - {e.response.text}")
+        if progress_callback:
+            progress_callback(100)  # Indicate completion (with error)
+        error_content = e.response.text
+        try:
+            error_json = json.loads(error_content)
+            if "error" in error_json:
+                error_message = error_json["error"]
+                if isinstance(error_message, list):
+                    error_message = ", ".join(error_message)
+                if "estimated_time" in error_json: # Model is loading
+                     raise RuntimeError(f"Model {model_id} is currently loading, try again in {error_json['estimated_time']:.0f}s. API Error: {error_message}") 
+                raise RuntimeError(f"Hugging Face API error ({e.response.status_code}): {error_message}")
+        except json.JSONDecodeError:
+            pass  # Fallback to generic error if response is not JSON
+        raise RuntimeError(f"Hugging Face API request for text generation failed with status {e.response.status_code}: {e.response.text}")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error during Hugging Face API call for text generation: {e}")
+        if progress_callback:
+            progress_callback(100)  # Indicate completion (with error)
+        raise RuntimeError(f"Failed to connect to Hugging Face API for text generation: {e}")
+    except json.JSONDecodeError as e:
+        logger.error(f"Error decoding JSON response from Hugging Face API for text generation: {e}")
+        if progress_callback:
+            progress_callback(100)  # Indicate completion (with error)
+        raise RuntimeError("Invalid JSON response from Hugging Face API for text generation.")

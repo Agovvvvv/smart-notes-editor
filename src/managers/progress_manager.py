@@ -40,9 +40,13 @@ class ProgressManager:
     
     def on_operation_started(self):
         """Handle operation started event."""
+        logger.info("Operation started event received")
         if self.progress_bar:
+            logger.info("Setting progress bar to 0 and showing it")
             self.progress_bar.setValue(0)
             self.progress_bar.show()
+        else:
+            logger.error("Progress bar is None - not initialized properly")
     
     def on_progress_update(self, progress):
         """
@@ -51,8 +55,11 @@ class ProgressManager:
         Args:
             progress (int): The progress value (0-100)
         """
+        logger.info(f"Progress update event received: {progress}%")
         if self.progress_bar:
             self.progress_bar.setValue(progress)
+        else:
+            logger.error("Progress bar is None - not initialized properly")
     
     def on_operation_error(self, error_info):
         """
@@ -61,8 +68,11 @@ class ProgressManager:
         Args:
             error_info: The error information
         """
+        logger.info(f"Operation error event received: {error_info}")
         if self.progress_bar:
             self.progress_bar.hide()
+        else:
+            logger.error("Progress bar is None - not initialized properly")
         
         # If error_info is a tuple (type, value, traceback), extract the value
         if isinstance(error_info, tuple) and len(error_info) >= 2:
@@ -76,9 +86,25 @@ class ProgressManager:
     
     def on_operation_finished(self):
         """Handle operation finished event."""
+        logger.info("Operation finished event received")
         if self.progress_bar:
             self.progress_bar.hide()
+        else:
+            logger.error("Progress bar is None - not initialized properly")
     
+    def start_operation_with_message(self, message: str):
+        """Start an operation: show progress bar and display a message."""
+        self.on_operation_started()
+        self.show_message(message)
+
+    def hide_progress(self):
+        """Hide the progress bar."""
+        logger.info("hide_progress called")
+        if self.progress_bar:
+            self.progress_bar.hide()
+        else:
+            logger.warning("Progress bar is None when trying to hide - might not be initialized properly or already hidden.")
+
     def show_message(self, message):
         """
         Show a message in the status bar.

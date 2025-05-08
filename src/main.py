@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import QFile, QTextStream
 from views.main_window import MainWindow
 from utils.settings import Settings
+from dotenv import load_dotenv
 
 # Set up logging
 logging.basicConfig(
@@ -55,6 +56,10 @@ def load_stylesheet(theme="dark"):
 
 def main():
     """Initialize and run the application."""
+    # Load environment variables from .env file
+    load_dotenv()
+    logger.info(".env file loaded (if present).")
+
     # Create the application
     app = QApplication(sys.argv)
     

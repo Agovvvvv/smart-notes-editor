@@ -16,6 +16,7 @@ build/
 .vscode/
 *.swp
 *.swo
+.windsurf/rules
 
 # OS specific files
 .DS_Store
@@ -28,3 +29,4 @@ api_keys.json
 
 # Temporary files
 *.tmp
+

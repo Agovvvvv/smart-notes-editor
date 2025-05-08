@@ -97,34 +97,6 @@ class Worker(QRunnable):
             logger.info(f"Worker finished: {self.fn.__name__}")
 
 
-class SummarizationWorker(Worker):
-    """
-    Worker thread specifically for text summarization.
-    
-    Inherits from Worker and adds specific functionality for summarization tasks.
-    """
-    
-    def __init__(self, summarize_fn, text, max_length=None, min_length=None, model_name=None):
-        """
-        Initialize the summarization worker.
-        
-        Args:
-            summarize_fn: The summarization function to call
-            text: The text to summarize
-            max_length: Maximum length of the summary (in tokens or characters)
-            min_length: Minimum length of the summary (in tokens or characters)
-            model_name: Name of the AI model to use for summarization
-        """
-        super().__init__(
-            summarize_fn, 
-            text,
-            max_length=max_length,
-            min_length=min_length,
-            model_name=model_name
-        )
-        logger.info(f"SummarizationWorker initialized with model: {model_name if model_name else 'default'}")
-
-
 class WebScrapingWorker(Worker):
     """
     Worker thread specifically for web scraping operations.
@@ -158,3 +130,81 @@ class WebScrapingWorker(Worker):
             
         super().__init__(scrape_fn, **kwargs)
         logger.info(f"WebScrapingWorker initialized for {scrape_fn.__name__}")
+
+
+class ApiSummarizationWorker(Worker):
+    """
+    Worker thread specifically for API-based text summarization.
+    
+    Inherits from Worker and calls an API summarization function.
+    """
+    
+    def __init__(self, summarize_api_fn, text: str, api_key: str, model_id: str):
+        """
+        Initialize the API summarization worker.
+        
+        Args:
+            summarize_api_fn: The API summarization function to call (e.g., summarize_text_hf_api).
+            text (str): The text to summarize.
+            api_key (str): The API key for the summarization service.
+            model_id (str): The model ID to be used by the API.
+        """
+        super().__init__(
+            summarize_api_fn,
+            text=text,          # Pass as keyword argument for clarity
+            api_key=api_key,    # Pass as keyword argument
+            model_id=model_id   # Pass as keyword argument
+        )
+        logger.info(f"ApiSummarizationWorker initialized for model: {model_id}")
+
+
+class LocalSummarizationWorker(Worker):
+    """
+    Worker thread specifically for local text summarization using Hugging Face pipeline.
+    
+    Inherits from Worker and calls a local summarization function.
+    """
+    
+    def __init__(self, summarize_local_fn, text: str, model_id: str):
+        """
+        Initialize the local summarization worker.
+        
+        Args:
+            summarize_local_fn: The local summarization function to call (e.g., summarize_text_local).
+            text (str): The text to summarize.
+            model_id (str): The model ID to be used by the local pipeline.
+        """
+        super().__init__(
+            summarize_local_fn,
+            text=text,          # Pass as keyword argument for clarity
+            model_id=model_id   # Pass as keyword argument
+        )
+        logger.info(f"LocalSummarizationWorker initialized for model: {model_id}")
+
+
+class ApiTextGenerationWorker(Worker):
+    """
+    Worker thread specifically for API-based text generation.
+    
+    Inherits from Worker and calls an API text generation function.
+    """
+    
+    def __init__(self, generate_api_fn, prompt_text: str, api_key: str, model_id: str, max_new_tokens: int):
+        """
+        Initialize the API text generation worker.
+        
+        Args:
+            generate_api_fn: The API text generation function to call (e.g., generate_text_hf_api).
+            prompt_text (str): The prompt to generate text from.
+            api_key (str): The API key for the text generation service.
+            model_id (str): The model ID to be used by the API.
+            max_new_tokens (int): The maximum number of new tokens to generate.
+        """
+        super().__init__(
+            generate_api_fn,
+            text_prompt=prompt_text, # Pass as keyword argument for clarity
+            api_key=api_key,         # Pass as keyword argument
+            model_id=model_id,       # Pass as keyword argument
+            max_new_tokens=max_new_tokens # Pass as keyword argument
+        )
+        logger.info(f"ApiTextGenerationWorker initialized for model: {model_id} with max_new_tokens: {max_new_tokens}")

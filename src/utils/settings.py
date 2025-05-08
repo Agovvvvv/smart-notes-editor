@@ -51,6 +51,11 @@ class Settings:
             },
             "appearance": {
                 "theme": "light"  # light or dark
+            },
+            "ai": {
+                "huggingface_api_key": "",
+                "huggingface_summarization_model_id": "facebook/bart-large-cnn", # Default model ID
+                "huggingface_text_generation_model_id": "gpt2"  # Default text generation model ID
             }
         }
         

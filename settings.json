@@ -1,9 +1,9 @@
 {
     "window": {
-        "width": 800,
-        "height": 600,
-        "x": 302,
-        "y": 112
+        "width": 1440,
+        "height": 847,
+        "x": 0,
+        "y": 25
     },
     "editor": {
         "font_family": "Arial",
@@ -21,6 +21,10 @@
         "theme": "light"
     },
     "ai": {
+        "huggingface_api_key": "",
+        "huggingface_summarization_model_id": "facebook/bart-large-cnn",
+        "huggingface_text_generation_model_id": "gpt2",
+        "summarization_backend": "local",
         "model": "facebook/bart-large-cnn"
     }
 }

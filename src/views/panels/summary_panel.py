@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QPushButton, QTextBrowser, QApplication
 )
+from PyQt5.QtGui import QIcon
 
 # Set up logging
 logging.basicConfig(
@@ -42,46 +43,65 @@ class SummaryPanel(QWidget):
         
         # Add the summary text browser
         self.summary_browser = QTextBrowser()
+        self.summary_browser.setPlaceholderText("Generated summary will appear here...")
         layout.addWidget(self.summary_browser)
         
         # Add buttons
         button_layout = QHBoxLayout()
         
-        # Copy button
-        copy_button = QPushButton("Copy to Clipboard")
-        copy_button.clicked.connect(self.copy_to_clipboard)
-        button_layout.addWidget(copy_button)
+        # Insert at Top button
+        self.insert_top_button = QPushButton(QIcon.fromTheme("go-top"), "Insert at Top")
+        self.insert_top_button.clicked.connect(self.insert_at_top)
+        button_layout.addWidget(self.insert_top_button)
         
-        # Insert button
-        insert_button = QPushButton("Insert at Cursor")
-        insert_button.clicked.connect(self.insert_at_cursor)
-        button_layout.addWidget(insert_button)
-        
-        # Close button
-        close_button = QPushButton("Close Panel")
-        close_button.clicked.connect(self.close_panel)
-        button_layout.addWidget(close_button)
+        # Insert at Cursor button
+        self.insert_cursor_button = QPushButton(QIcon.fromTheme("edit-paste"), "Insert at Cursor")
+        self.insert_cursor_button.clicked.connect(self.insert_at_cursor)
+        button_layout.addWidget(self.insert_cursor_button)
+
+        # Insert at Bottom button
+        self.insert_bottom_button = QPushButton(QIcon.fromTheme("go-bottom"), "Insert at Bottom")
+        self.insert_bottom_button.clicked.connect(self.insert_at_bottom)
+        button_layout.addWidget(self.insert_bottom_button)
         
         layout.addLayout(button_layout)
+
+        # Close button - consider placing it below the other buttons for grouping
+        self.close_button = QPushButton(QIcon.fromTheme("window-close"), "Close Panel")
+        self.close_button.clicked.connect(self.close_panel)
+        layout.addWidget(self.close_button) # Added directly to the main vertical layout
     
     def set_summary(self, summary):
         """Set the summary text in the browser."""
         self.summary_browser.setPlainText(summary)
-        self.summary = summary
+        self.summary = summary # Keep a local copy of the raw summary
     
-    def copy_to_clipboard(self):
-        """Copy the summary to the clipboard."""
-        clipboard = QApplication.clipboard()
-        clipboard.setText(self.summary)
-        
-        # Update status in parent if available
-        if hasattr(self.parent, 'statusBar'):
-            self.parent.statusBar.showMessage("Summary copied to clipboard")
+    def clear_summary(self):
+        """Clear the summary text and stored summary."""
+        self.summary_browser.clear()
+        self.summary = ""
+        logger.debug("SummaryPanel summary cleared.")
+
+    def insert_at_top(self):
+        """Signal the parent to insert the summary at the top."""
+        if hasattr(self.parent, 'insert_summary_at_top') and self.summary:
+            self.parent.insert_summary_at_top(self.summary)
+        elif not self.summary:
+            logger.warning("SummaryPanel: Attempted to insert empty summary at top.")
     
     def insert_at_cursor(self):
         """Signal the parent to insert the summary at the cursor position."""
-        if hasattr(self.parent, 'insert_summary_at_cursor'):
+        if hasattr(self.parent, 'insert_summary_at_cursor') and self.summary:
             self.parent.insert_summary_at_cursor(self.summary)
+        elif not self.summary:
+            logger.warning("SummaryPanel: Attempted to insert empty summary at cursor.")
+
+    def insert_at_bottom(self):
+        """Signal the parent to insert the summary at the bottom."""
+        if hasattr(self.parent, 'insert_summary_at_bottom') and self.summary:
+            self.parent.insert_summary_at_bottom(self.summary)
+        elif not self.summary:
+            logger.warning("SummaryPanel: Attempted to insert empty summary at bottom.")
     
     def close_panel(self):
         """Signal the parent to close this panel."""

@@ -69,7 +69,7 @@ class TestEditorLogic(unittest.TestCase):
         content = "This is just some text without a title."
         suggested_name = self.editor_logic.suggest_file_name(content)
         self.assertTrue(suggested_name.endswith(".txt"))
-        self.assertTrue(len(suggested_name) > 5)  # Should have a reasonable length
+        self.assertGreater(len(suggested_name), 5)  # Should have a reasonable length
 
 if __name__ == "__main__":
     unittest.main()

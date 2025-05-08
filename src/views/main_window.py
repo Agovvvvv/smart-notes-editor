@@ -11,7 +11,8 @@ import logging
 from PyQt5.QtWidgets import (
     QMainWindow, QTextEdit, QAction, QMessageBox, 
     QStatusBar, QVBoxLayout, QWidget, QSplitter, 
-    QApplication, QToolBar, QFileDialog
+    QApplication, QToolBar, QFileDialog, QDialog,
+    QInputDialog, QDockWidget, QPushButton, QHBoxLayout
 )
 from PyQt5.QtCore import Qt, QThreadPool
 from PyQt5.QtGui import QTextCursor, QIcon
@@ -33,6 +34,8 @@ from managers.progress_manager import ProgressManager
 # Import dialogs
 from views.dialogs.auto_enhance_dialog import AutoEnhanceDialog
 from views.dialogs.model_dialog import ModelSelectionDialog
+from views.dialogs.ai_services_dialog import AIServicesDialog
+from views.panels.summary_panel import SummaryPanel
 
 # Set up logging
 logging.basicConfig(
@@ -66,7 +69,9 @@ class MainWindow(QMainWindow):
         # Initialize thread pool for background tasks
         self.thread_pool = QThreadPool()
         logger.info(f"Maximum thread count: {self.thread_pool.maxThreadCount()}")
-        
+
+        self._setup_summary_dock_widget()
+
         # Window properties
         self.setWindowTitle("Smart Contextual Notes Editor")
         
@@ -104,7 +109,7 @@ class MainWindow(QMainWindow):
         # Set up menus and toolbar
         self._setup_menus()
         self._setup_toolbar()
-        
+
         # Status bar with progress bar
         self.statusBar = QStatusBar()
         self.setStatusBar(self.statusBar)
@@ -125,8 +130,10 @@ class MainWindow(QMainWindow):
     
     def _setup_menus(self):
         """Set up the application menus."""
-        # File menu
-        file_menu = self.menuBar().addMenu("&File")
+        menubar = self.menuBar()
+
+        # File Menu
+        file_menu = menubar.addMenu('&File')
         
         # New action
         new_action = QAction("&New", self)
@@ -167,7 +174,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(exit_action)
         
         # Edit menu
-        edit_menu = self.menuBar().addMenu("&Edit")
+        edit_menu = menubar.addMenu("&Edit")
         
         # Undo action
         undo_action = QAction("&Undo", self)
@@ -203,28 +210,43 @@ class MainWindow(QMainWindow):
         # Paste action
         paste_action = QAction("&Paste", self)
         paste_action.setShortcut("Ctrl+V")
-        paste_action.setStatusTip("Paste the clipboard text")
+        paste_action.setStatusTip("Paste text from clipboard")
         paste_action.triggered.connect(self.text_edit.paste)
         edit_menu.addAction(paste_action)
         
-        # AI menu
-        ai_menu = self.menuBar().addMenu("&AI")
+        # Separator
+        edit_menu.addSeparator()
         
-        # Summarize action
-        summarize_action = QAction("&Summarize Note", self)
-        summarize_action.setShortcut("Ctrl+Alt+S")
-        summarize_action.setStatusTip("Generate a summary of the current note using AI")
-        summarize_action.triggered.connect(self.on_summarize_note)
-        ai_menu.addAction(summarize_action)
-        
-        # Select Model action
-        select_model_action = QAction("Select &Model...", self)
-        select_model_action.setStatusTip("Select AI model for summarization")
-        select_model_action.triggered.connect(self.on_select_model)
-        ai_menu.addAction(select_model_action)
+        # Select All action
+        select_all_action = QAction("Select &All", self)
+        select_all_action.setShortcut("Ctrl+A")
+        select_all_action.setStatusTip("Select all text")
+        select_all_action.triggered.connect(self.text_edit.selectAll)
+        edit_menu.addAction(select_all_action)
+
+        # AI Tools Menu
+        ai_menu = menubar.addMenu("&AI Tools")
+        self.summarize_action = QAction(QIcon.fromTheme("edit-paste"), "&Summarize Note", self)
+        self.summarize_action.setStatusTip("Generate a summary of the current note using AI")
+        self.summarize_action.triggered.connect(self.on_summarize_note)
+        ai_menu.addAction(self.summarize_action)
+
+        self.generate_note_action = QAction(QIcon.fromTheme("document-new"), "&Generate Note...", self)
+        self.generate_note_action.setStatusTip("Generate new note content based on a prompt using AI")
+        self.generate_note_action.triggered.connect(self.on_generate_note_text)
+        ai_menu.addAction(self.generate_note_action)
+
+        ai_menu.addSeparator()
+        self.configure_ai_services_action = QAction(QIcon.fromTheme("preferences-system"), "&Configure AI Services...", self)
+        self.configure_ai_services_action.setStatusTip("Configure AI model and API settings")
+        self.configure_ai_services_action.triggered.connect(self._configure_ai_services)
+        ai_menu.addAction(self.configure_ai_services_action)
+
+        # View menu (for panels, themes etc.)
+        view_menu = menubar.addMenu("&View")
         
         # Web menu
-        web_menu = self.menuBar().addMenu("&Web")
+        web_menu = menubar.addMenu("&Web")
         
         # Search Web action
         search_web_action = QAction("&Search Web", self)
@@ -241,7 +263,7 @@ class MainWindow(QMainWindow):
         web_menu.addAction(search_selected_action)
         
         # Context menu
-        context_menu = self.menuBar().addMenu("&Context")
+        context_menu = menubar.addMenu("&Context")
         
         # Analyze context action
         analyze_context_action = QAction("&Analyze Context", self)
@@ -314,22 +336,20 @@ class MainWindow(QMainWindow):
     def _connect_signals(self):
         """Connect all signals to their handlers."""
         # AI controller signals
-        self.ai_controller.summarization_started.connect(self.progress_manager.on_operation_started)
-        self.ai_controller.summarization_progress.connect(self.progress_manager.on_progress_update)
-        self.ai_controller.summarization_result.connect(self.panel_manager.show_summary_panel)
-        self.ai_controller.summarization_error.connect(self.progress_manager.on_operation_error)
-        self.ai_controller.summarization_finished.connect(self.progress_manager.on_operation_finished)
+        self.ai_controller.summarization_started.connect(self._on_summarization_started)
+        self.ai_controller.summarization_progress.connect(self._on_summarization_progress)
+        self.ai_controller.summarization_result.connect(self._on_summarization_result)
+        self.ai_controller.summarization_error.connect(self._on_summarization_error)
+        self.ai_controller.summarization_finished.connect(self._on_summarization_finished)
         
-        self.ai_controller.model_preload_result.connect(self._on_model_preload_result)
-        self.ai_controller.model_preload_error.connect(self.progress_manager.on_operation_error)
-        
+        # Connect AIController text generation signals to MainWindow handlers
+        self.ai_controller.text_generation_started.connect(self._on_text_generation_started)
+        self.ai_controller.text_generation_progress.connect(self._on_text_generation_progress)
+        self.ai_controller.text_generation_result.connect(self._on_text_generation_result)
+        self.ai_controller.text_generation_error.connect(self._on_text_generation_error)
+        self.ai_controller.text_generation_finished.connect(self._on_text_generation_finished)
+
         # Web controller signals
-        self.web_controller.web_search_started.connect(self.progress_manager.on_operation_started)
-        self.web_controller.web_search_progress.connect(self.progress_manager.on_progress_update)
-        self.web_controller.web_search_result.connect(self.panel_manager.show_web_results_panel)
-        self.web_controller.web_search_error.connect(self.progress_manager.on_operation_error)
-        self.web_controller.web_search_finished.connect(self.progress_manager.on_operation_finished)
-        
         self.web_controller.content_fetch_started.connect(self._on_content_fetch_started)
         self.web_controller.content_fetch_progress.connect(self.progress_manager.on_progress_update)
         self.web_controller.content_fetch_result.connect(self._on_content_fetch_result)
@@ -342,6 +362,13 @@ class MainWindow(QMainWindow):
         self.context_controller.suggestions_ready.connect(self.panel_manager.show_suggestions_panel)
         self.context_controller.context_analysis_error.connect(self.progress_manager.on_operation_error)
         self.context_controller.context_analysis_finished.connect(self.progress_manager.on_operation_finished)
+
+        # Connect the new summary_dock_widget visibility signal
+        if hasattr(self, 'summary_dock_widget') and self.summary_dock_widget:
+             self.summary_dock_widget.visibilityChanged.connect(self._on_summary_dock_visibility_changed)
+
+        # Web operations
+        # self.web_controller.web_search_result.connect(self._on_web_search_result) # Commented out to fix AttributeError
     
     def _show_context_menu(self, position):
         """Show a context menu for the text editor."""
@@ -378,11 +405,15 @@ class MainWindow(QMainWindow):
     
     def on_summarize_note(self):
         """Generate a summary of the current note using AI."""
+        logger.info("Summarize note action triggered")
+        
         # Get the text to summarize
         text = self.text_edit.toPlainText()
+        logger.info(f"Text length for summarization: {len(text)} characters, {len(text.split())} words")
         
         # Check if there's enough text to summarize
         if not text or len(text.split()) < 50:
+            logger.warning("Not enough text to summarize (less than 50 words)")
             QMessageBox.warning(
                 self,
                 "Not Enough Text",
@@ -392,9 +423,12 @@ class MainWindow(QMainWindow):
         
         try:
             # Use the AI controller to summarize the text
+            logger.info("Calling ai_controller.summarize_text()")
             self.ai_controller.summarize_text(text)
+            logger.info("ai_controller.summarize_text() call completed")
             
         except Exception as e:
+            logger.error(f"Exception in on_summarize_note: {str(e)}")
             self.progress_manager.on_operation_error(str(e))
             QMessageBox.critical(
                 self,
@@ -413,7 +447,7 @@ class MainWindow(QMainWindow):
             dialog = ModelSelectionDialog(self, available_models, current_model)
             result = dialog.exec_()
             
-            if result == QApplication.DialogCode.Accepted:
+            if result == QDialog.Accepted:
                 # Get the selected model
                 selected_model = dialog.get_selected_model()
                 if selected_model != self.ai_controller.get_current_model():
@@ -453,24 +487,18 @@ class MainWindow(QMainWindow):
     
     def insert_summary_at_cursor(self, summary):
         """Insert the summary at the current cursor position."""
-        # Get the current cursor
+        if not summary:
+            logger.warning("Attempted to insert an empty summary.")
+            QMessageBox.warning(self, "Empty Summary", "The generated summary is empty.")
+            return
+            
         cursor = self.text_edit.textCursor()
-        
-        # Insert a newline if we're not at the beginning of a line
-        if cursor.columnNumber() > 0:
+        # Add a bit of spacing if inserting into existing text
+        if not cursor.atStart() and not cursor.atEnd():
             cursor.insertText("\n\n")
-        
-        # Insert the summary with a header
-        cursor.insertText("## Summary\n\n")
-        cursor.insertText(summary)
-        cursor.insertText("\n\n")
-        
-        self.statusBar.showMessage("Summary inserted at cursor position")
-    
-    #
-    # Web Search Methods
-    #
-    
+        cursor.insertText(f"## Summary\n\n{summary}\n\n")
+        # QMessageBox.information(self, "Summary Inserted", "The summary has been inserted at the cursor.") # Removed to avoid double pop-up if panel is also used
+
     def on_search_web(self):
         """Search the web for information related to the current note."""
         # Get the text to search for
@@ -848,6 +876,14 @@ class MainWindow(QMainWindow):
             cursor.insertText("\n\n## Related Information\n")
             cursor.insertText(enhancement_text)
     
+    def _configure_ai_services(self):
+        """Configure AI services dialog."""
+        logger.info("Configure AI Services action triggered.")
+        dialog = AIServicesDialog(self.app_settings, self)
+        if dialog.exec_() == QDialog.Accepted:
+            # Settings are saved within the dialog's accept() method
+            logger.info("AI Services configured and saved.")
+
     def closeEvent(self, event):
         """Handle the window close event."""
         if self.file_controller._check_unsaved_changes():
@@ -861,3 +897,170 @@ class MainWindow(QMainWindow):
             event.accept()
         else:
             event.ignore()
+
+    def on_generate_note_text(self):
+        """Generate new note content based on a prompt using AI."""
+        prompt_text, ok = QInputDialog.getText(self, "Generate Note Content", 
+                                               "Enter your prompt for the AI:")
+        
+        if ok and prompt_text:
+            logger.info(f"User provided prompt for text generation: '{prompt_text[:50]}...' ") 
+            # Call the AI controller's method to generate text.
+            try:
+                self.ai_controller.request_text_generation(prompt_text, max_new_tokens=250)
+                self.statusBar.showMessage("AI is generating text...") 
+            except Exception as e:
+                logger.error(f"Error triggering text generation: {e}")
+                QMessageBox.critical(self, "Error", f"Could not start text generation: {e}")
+        else:
+            logger.info("Text generation cancelled by user or empty prompt.")
+
+    # --- Placeholder AI Text Generation Signal Handlers ---
+    def _on_text_generation_started(self):
+        """Handle the start of AI text generation."""
+        logger.info("AI Text Generation Started.")
+        self.progress_manager.start_operation_with_message("Generating text...")
+        # self.statusBar.showMessage("AI is generating text...") # Covered by start_operation_with_message
+
+    def _on_text_generation_progress(self, percentage: int):
+        """Handle AI text generation progress updates."""
+        # logger.info(f"AI Text Generation Progress: {percentage}%")
+        # self.progress_manager.update_progress(percentage) # If granular progress becomes available
+        pass # Text generation APIs usually don't provide granular progress like summarization models
+
+    def _on_text_generation_result(self, generated_text: str):
+        """Handle the result of AI text generation."""
+        logger.info(f"AI Text Generation Result received (first 100 chars): {generated_text[:100]}...")
+        self.progress_manager.hide_progress()
+        self.statusBar.showMessage("Text generation complete.", 5000) # Show for 5 seconds
+        
+        cursor = self.text_edit.textCursor()
+        cursor.insertText(generated_text)
+        QMessageBox.information(self, "Text Generated", "AI has generated new content and inserted it at the cursor.")
+
+    def _on_text_generation_error(self, error_details):
+        """Handle errors during AI text generation."""
+        err_type, err_msg, traceback_str = error_details
+        logger.error(f"AI Text Generation Error: {err_type.__name__}: {err_msg}")
+        # logger.debug(f"Traceback:\n{traceback_str}") # Keep for debugging if needed
+        self.progress_manager.hide_progress()
+        self.statusBar.showMessage("Text generation failed.", 5000)
+        QMessageBox.critical(self, "Text Generation Error", 
+                             f"An error occurred during text generation: {err_msg}")
+
+    def _on_text_generation_finished(self):
+        """Handle the end of AI text generation (success or failure)."""
+        logger.info("AI Text Generation Finished.")
+        self.progress_manager.hide_progress() # Ensure progress is hidden
+        # Status message is usually set by result or error handlers
+
+    # --- End Placeholder AI Text Generation Signal Handlers ---
+
+    # --- AI Summarization Signal Handlers ---
+    def _on_summarization_started(self):
+        """Handle the start of AI text summarization."""
+        logger.info("AI Summarization Started.")
+        self.progress_manager.start_operation_with_message("Summarizing text...")
+        # self.statusBar.showMessage("AI is summarizing text...") # Covered by start_operation_with_message
+
+    def _on_summarization_progress(self, percentage: int):
+        """Handle AI text summarization progress updates."""
+        # logger.info(f"AI Summarization Progress: {percentage}%")
+        # self.progress_manager.update_progress(percentage) # If granular progress becomes available
+        pass # API-based summarization might not offer granular progress
+
+    def _on_summarization_result(self, summary_text: str):
+        """Handle the result of AI text summarization."""
+        logger.info(f"AI Summarization Result received (first 100 chars): {summary_text[:100]}...")
+        self.progress_manager.hide_progress()
+        
+        if not summary_text.strip():
+            self.statusBar.showMessage("Summarization complete: Empty summary.", 5000)
+            QMessageBox.information(self, "Summarization Complete", "The generated summary is empty or contains only whitespace.")
+            return
+
+        self.statusBar.showMessage("Summarization complete.", 5000)
+        # self.current_summary_text = summary_text # Not needed here, SummaryPanel will store it
+        if self.summary_panel_view:
+            self.summary_panel_view.set_summary(summary_text)
+        
+        if self.summary_dock_widget:
+            self.summary_dock_widget.setVisible(True)
+            self.summary_dock_widget.raise_()
+
+    def _on_summarization_error(self, error_details):
+        """Handle errors during AI text summarization."""
+        err_type, err_msg, traceback_str = error_details
+        logger.error(f"AI Summarization Error: {err_type.__name__}: {err_msg}")
+        self.progress_manager.hide_progress()
+        self.statusBar.showMessage("Summarization failed.", 5000)
+        QMessageBox.critical(
+            self,
+            "Summarization Error",
+            f"An error occurred during summarization: {err_msg}")
+
+    def _on_summarization_finished(self):
+        """Handle the end of AI text summarization (success or failure)."""
+        logger.info("AI Summarization Finished.")
+        self.progress_manager.hide_progress() # Ensure progress is hidden
+        # Status message is usually set by result or error handlers
+    # --- End AI Summarization Signal Handlers ---
+
+    # --- New SummaryPanel Integration Methods ---
+    def _setup_summary_dock_widget(self):
+        """Sets up the QDockWidget that will host the SummaryPanel."""
+        self.summary_dock_widget = QDockWidget("Summary", self)
+        self.summary_dock_widget.setObjectName("MainSummaryDockWidget")
+        self.summary_panel_view = SummaryPanel(parent=self)
+        self.summary_dock_widget.setWidget(self.summary_panel_view)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.summary_dock_widget)
+        self.summary_dock_widget.setFeatures(QDockWidget.DockWidgetClosable | QDockWidget.DockWidgetFloatable)
+        self.summary_dock_widget.setVisible(False)
+
+    def insert_summary_at_top(self, summary: str):
+        """Insert the provided summary at the top of the document."""
+        if not summary:
+            return
+        cursor = self.text_edit.textCursor()
+        cursor.movePosition(QTextCursor.Start)
+        
+        current_content_start = self.text_edit.toPlainText()[:len(summary) + 20]
+        prefix = ""
+        if self.text_edit.toPlainText() and not current_content_start.startswith( ("\n", "\r") ):
+             prefix = f"## Summary\n\n{summary}\n\n"
+        else:
+            prefix = f"## Summary\n\n{summary}\n"
+            
+        cursor.insertText(prefix)
+        self.statusBar.showMessage("Summary inserted at the top.", 3000)
+
+    # insert_summary_at_cursor is already defined and should work if it accepts 'summary' argument.
+    # Ensure its signature is: def insert_summary_at_cursor(self, summary: str):
+
+    def insert_summary_at_bottom(self, summary: str):
+        """Insert the provided summary at the bottom of the document."""
+        if not summary:
+            return
+        cursor = self.text_edit.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        
+        suffix = ""
+        if self.text_edit.toPlainText() and not self.text_edit.toPlainText().endswith( ("\n", "\r") ):
+            suffix = f"\n\n## Summary\n\n{summary}\n"
+        else:
+            suffix = f"## Summary\n\n{summary}\n"
+
+        cursor.insertText(suffix)
+        self.statusBar.showMessage("Summary inserted at the bottom.", 3000)
+
+    def close_summary_panel(self):
+        """Close (hide) the summary dock widget."""
+        if self.summary_dock_widget:
+            self.summary_dock_widget.setVisible(False)
+
+    def _on_summary_dock_visibility_changed(self, visible: bool):
+        """Handle summary_dock_widget visibility changes."""
+        if not visible:
+            if self.summary_panel_view:
+                self.summary_panel_view.clear_summary()
+            logger.debug("MainSummaryDockWidget hidden, summary cleared from SummaryPanel.")
