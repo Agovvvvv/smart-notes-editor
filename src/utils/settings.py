@@ -55,7 +55,8 @@ class Settings:
             "ai": {
                 "huggingface_api_key": "",
                 "huggingface_summarization_model_id": "facebook/bart-large-cnn", # Default model ID
-                "huggingface_text_generation_model_id": "gpt2"  # Default text generation model ID
+                "huggingface_text_generation_model_id": "gpt2",  # Default text generation model ID
+                "max_links_for_qna": 3 # Default number of links to fetch for Q&A
             }
         }
         

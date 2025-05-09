@@ -8,11 +8,11 @@ Handles AI operations like summarization and model management.
 
 import logging
 import os
-from PyQt5.QtCore import QObject, QThreadPool, pyqtSignal
+from PyQt5.QtCore import QObject, QThreadPool, pyqtSignal, pyqtSlot
 
 # Import AI utilities and workers
-from backend.ai_utils import summarize_text_local, generate_text_hf_api
-from utils.threads import LocalSummarizationWorker, ApiTextGenerationWorker
+from backend.ai_utils import summarize_text_local, generate_text_hf_api, perform_question_answering, extract_entities_spacy
+from utils.threads import LocalSummarizationWorker, ApiTextGenerationWorker, QuestionAnsweringWorker
 
 # Set up logging
 logging.basicConfig(
@@ -37,6 +37,12 @@ class AIManager(QObject):
     text_generation_result_signal = pyqtSignal(str)
     text_generation_error_signal = pyqtSignal(tuple)
     text_generation_finished_signal = pyqtSignal()
+    
+    # Signals for Q&A on enhanced content
+    qna_started_signal = pyqtSignal()
+    qna_result_signal = pyqtSignal(dict)  # Emits a dictionary of Q&A results
+    qna_error_signal = pyqtSignal(tuple)
+    qna_finished_signal = pyqtSignal()
     
     def __init__(self, parent=None, settings=None):
         """Initialize the AI manager."""
@@ -199,9 +205,10 @@ class AIManager(QObject):
             import traceback
             error_tuple = (type(e), str(e), traceback.format_exc())
             self.text_generation_error_signal.emit(error_tuple)
+            self.text_generation_finished_signal.emit() # Ensure finished is emitted in case of setup error
             # Optionally re-raise or handle further if needed
 
-    # --- Internal Text Generation Worker Signal Handlers ---
+    # --- Internal Handlers for Text Generation Worker --- 
     def _handle_worker_generation_started(self):
         logger.debug("AIManager: Worker generation started, emitting AIManager signal.")
         self.text_generation_started_signal.emit()
@@ -219,5 +226,70 @@ class AIManager(QObject):
         self.text_generation_error_signal.emit(error_details)
 
     def _handle_worker_generation_finished(self):
-        logger.debug("AIManager: Worker generation finished, emitting AIManager signal.")
+        logger.debug("AIManager: Worker generation finished, emitting finished signal.")
         self.text_generation_finished_signal.emit()
+
+    def trigger_qna_on_enhanced_content(self, original_note_text: str, extracted_entities: list, web_content_collated: str):
+        """Triggers Question Answering on collated web content using a worker."""
+        logger.info(f"AIManager.trigger_qna_on_enhanced_content called. Entities count: {len(extracted_entities)}, Web content length: {len(web_content_collated)}")    
+        self.qna_started_signal.emit()
+
+        try:
+            ai_settings = self.settings_model.get_ai_settings() if hasattr(self.settings_model, 'get_ai_settings') else {}
+            qna_model_id = ai_settings.get('qna_model_id', 'distilbert-base-cased-distilled-squad')
+            
+            worker = QuestionAnsweringWorker(
+                qna_fn=perform_question_answering, # Relies on top-level import
+                original_note_text=original_note_text,
+                extracted_entities=extracted_entities,
+                web_content_collated=web_content_collated,
+                qna_model_id=qna_model_id
+            )
+            logger.info(f"QuestionAnsweringWorker created for model: {qna_model_id}")
+
+            # Connect worker signals to AIManager's internal handlers
+            worker.signals.result.connect(self._handle_worker_qna_result)
+            worker.signals.error.connect(self._handle_worker_qna_error)
+            worker.signals.finished.connect(self._handle_worker_qna_finished)
+            
+            self.thread_pool.start(worker)
+            logger.info("QuestionAnsweringWorker started in thread pool.")
+
+        except ImportError as ie:
+            logger.error(f"AIManager: ImportError setting up QuestionAnsweringWorker - perform_question_answering likely not found: {ie}")
+            import traceback
+            self.qna_error_signal.emit((type(ie), str(ie), traceback.format_exc()))
+            self.qna_finished_signal.emit()
+        except Exception as e:
+            logger.error(f"AIManager: Error setting up QuestionAnsweringWorker: {e}")
+            import traceback
+            self.qna_error_signal.emit((type(e), str(e), traceback.format_exc()))
+            self.qna_finished_signal.emit()
+
+    # --- Internal Handlers for Q&A Worker --- 
+    @pyqtSlot(dict)
+    def _handle_worker_qna_result(self, qna_results: dict):
+        logger.info(f"AIManager: Q&A worker returned result: {list(qna_results.keys()) if isinstance(qna_results, dict) else type(qna_results)}")
+        self.qna_result_signal.emit(qna_results)
+
+    @pyqtSlot(tuple)
+    def _handle_worker_qna_error(self, error_details: tuple):
+        logger.error(f"AIManager: Q&A worker error: {error_details[0].__name__}: {error_details[1]}")
+        self.qna_error_signal.emit(error_details)
+
+    @pyqtSlot()
+    def _handle_worker_qna_finished(self):
+        logger.info("AIManager: Q&A worker finished, emitting finished signal.")
+        self.qna_finished_signal.emit()
+
+    def extract_entities_with_spacy(self, text: str, model_id: str = 'en_core_web_sm', **kwargs):
+        logger.debug(f"AIManager.extract_entities_with_spacy called with model: {model_id}")
+        progress_callback = kwargs.get('progress_callback')
+        try:
+            return extract_entities_spacy(text, model_id, progress_callback=progress_callback)
+        except Exception as e:
+            logger.error(f"Error calling extract_entities_spacy from AIManager: {e}")
+            # Ensure an empty list is returned on error to match expected type
+            return []
+
+    # ... (rest of the code remains the same)

@@ -4,7 +4,7 @@ beautifulsoup4>=4.9.0
 transformers>=4.0.0
 torch>=1.7.0
 python-dotenv>=0.15.0
+spacy>=3.0.0
 # The following will be needed in later phases
 # nltk>=3.6.0
-# spacy>=3.0.0
 # sentence-transformers>=2.0.0

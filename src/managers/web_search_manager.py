@@ -74,24 +74,26 @@ class WebSearchManager(QObject):
             from utils.threads import WebScrapingWorker
             
             # Create a worker for the web search
-            # Only pass the query parameter to avoid keyword conflicts
             worker = WebScrapingWorker(search_web, query=query)
             
-            # Connect signals
-            if hasattr(self.parent, '_on_web_search_started'):
-                worker.signals.started.connect(self.parent._on_web_search_started)
+            # Get the web_controller from the parent (MainWindow)
+            web_controller = self.parent.web_controller
+
+            # Connect signals to WebController's methods
+            if hasattr(web_controller, '_on_web_search_started'):
+                worker.signals.started.connect(web_controller._on_web_search_started)
             
-            if hasattr(self.parent, '_on_web_search_progress'):
-                worker.signals.progress.connect(self.parent._on_web_search_progress)
+            if hasattr(web_controller, '_on_web_search_progress'):
+                worker.signals.progress.connect(web_controller._on_web_search_progress)
             
-            if hasattr(self.parent, '_on_web_search_result'):
-                worker.signals.result.connect(self.parent._on_web_search_result)
+            if hasattr(web_controller, '_on_web_search_result'):
+                worker.signals.result.connect(web_controller._on_web_search_result)
             
-            if hasattr(self.parent, '_on_web_search_error'):
-                worker.signals.error.connect(self.parent._on_web_search_error)
+            if hasattr(web_controller, '_on_web_search_error'):
+                worker.signals.error.connect(web_controller._on_web_search_error)
             
-            if hasattr(self.parent, '_on_web_search_finished'):
-                worker.signals.finished.connect(self.parent._on_web_search_finished)
+            if hasattr(web_controller, '_on_web_search_finished'):
+                worker.signals.finished.connect(web_controller._on_web_search_finished)
             
             # Execute the worker
             self.thread_pool.start(worker)
@@ -123,7 +125,6 @@ class WebSearchManager(QObject):
             from utils.threads import WebScrapingWorker
             
             # Create a worker for the web search
-            # Only pass the query parameter to avoid keyword conflicts
             worker = WebScrapingWorker(search_web, query=query)
             
             # Connect signals to our internal handlers

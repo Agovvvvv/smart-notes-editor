@@ -17,7 +17,7 @@ class WebController(QObject):
     # Define signals
     web_search_started = pyqtSignal()
     web_search_progress = pyqtSignal(int)
-    web_search_result = pyqtSignal(list)
+    web_search_result = pyqtSignal(dict)
     web_search_error = pyqtSignal(tuple)
     web_search_finished = pyqtSignal()
     
@@ -37,7 +37,7 @@ class WebController(QObject):
         self.web_search_manager = WebSearchManager(self.main_window)
         
         # Store the last search results
-        self.last_search_results = []
+        self.last_search_results = {}
         
         # Connect web search manager signals
         self._connect_web_search_manager_signals()
@@ -57,12 +57,21 @@ class WebController(QObject):
         """Handle web search progress event."""
         self.web_search_progress.emit(progress)
     
-    def _on_web_search_result(self, results):
-        """Handle web search result event."""
-        # Store the results
-        self.last_search_results = results
+    def _on_web_search_result(self, search_data: dict):
+        """Handle web search result event.
+        
+        Args:
+            search_data (dict): A dictionary like {'query': str, 'links': list}
+        """
+        logger.info(f"WebController: Received search data from manager: {search_data}. Emitting web_search_result signal.")
+        # Store the results (now a dictionary)
+        # If last_search_results is used elsewhere and expects only links,
+        # this might need adjustment, e.g., self.last_search_results = search_data.get('links', [])
+        # For now, storing the whole dict for consistency with the signal.
+        self.last_search_results = search_data 
+        
         # Emit the signal
-        self.web_search_result.emit(results)
+        self.web_search_result.emit(search_data)
     
     def _on_web_search_error(self, error_msg):
         """Handle web search error event."""
@@ -153,6 +162,69 @@ class WebController(QObject):
         Get the results of the last search.
         
         Returns:
-            list: The last search results
+            dict: The last search results
         """
         return self.last_search_results
+
+    def fetch_url_content(self, url, context=None):
+        """
+        Fetch content from a URL and attach context for downstream consumers (e.g., QnA enhancement).
+        Args:
+            url (str): The URL to fetch content from
+            context (dict): Extra context to attach to the result/error
+        """
+        import traceback
+        if context is None:
+            context = {}
+        try:
+            from PyQt5.QtCore import QMetaObject
+            # Wrap the result/error handlers to inject context
+            def on_result(result):
+                # result is expected to be a dict with at least 'url' and 'content'
+                result_with_context = dict(result)
+                result_with_context['context'] = context
+                self.content_fetch_result.emit(result_with_context)
+                self.content_fetch_finished.emit()
+                disconnect_all()
+
+            def on_error(error_info):
+                # error_info could be a tuple or dict; standardize to dict
+                if isinstance(error_info, tuple):
+                    error_type, error_obj, tb = error_info
+                    error_dict = {
+                        'url': url,
+                        'error': str(error_obj),
+                        'context': context,
+                        'traceback': tb
+                    }
+                else:
+                    error_dict = dict(error_info)
+                    error_dict['context'] = context
+                self.content_fetch_error.emit(error_dict)
+                self.content_fetch_finished.emit()
+                disconnect_all()
+
+            def disconnect_all():
+                try:
+                    self.content_fetch_result.disconnect(on_result)
+                except Exception:
+                    pass
+                try:
+                    self.content_fetch_error.disconnect(on_error)
+                except Exception:
+                    pass
+
+            self.content_fetch_result.connect(on_result)
+            self.content_fetch_error.connect(on_error)
+
+            # Call the existing fetch_content (will emit signals above)
+            self.fetch_content(url)
+        except Exception as e:
+            error_dict = {
+                'url': url,
+                'error': str(e),
+                'context': context,
+                'traceback': traceback.format_exc()
+            }
+            self.content_fetch_error.emit(error_dict)
+            self.content_fetch_finished.emit()
