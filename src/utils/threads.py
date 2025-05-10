@@ -10,11 +10,6 @@ import logging
 import traceback
 from PyQt5.QtCore import QObject, QRunnable, pyqtSignal, pyqtSlot
 
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 class WorkerSignals(QObject):
@@ -182,6 +177,94 @@ class WebScrapingWorker(Worker):
             logger.info("WebScrapingWorker (overridden run) finished for: %s" % self.fn.__name__)
 
 
+class WebSearchForEntitiesWorker(Worker):
+    """
+    Worker thread for performing web searches for a list of entities.
+    Iterates through entities, calls a search function for each, and collates results.
+    """
+
+    def __init__(self, search_fn, entities: list, original_note_text: str = None, **kwargs):
+        """
+        Initialize the web search for entities worker.
+        
+        Args:
+            search_fn: The web search function to call per entity (e.g., a wrapper around scraper.search_web).
+            entities (list): A list of entity strings to search for.
+            original_note_text (str, optional): The original note text, if needed for context by search_fn.
+            **kwargs: Additional keyword arguments to pass to the parent Worker class.
+        """
+        self.entities = entities
+        self.original_note_text = original_note_text
+        # We pass search_fn and any other relevant fixed args to the parent Worker's __init__.
+        # The actual search_fn will be called with entity-specific details in the run method.
+        super().__init__(search_fn, **kwargs) # Pass search_fn and other kwargs to parent
+        logger.info(f"WebSearchForEntitiesWorker initialized for {len(entities)} entities.")
+
+    @pyqtSlot()
+    def run(self):
+        """
+        Execute the web search for each entity and emit collated results.
+        """
+        self.signals.started.emit()
+        logger.info(f"WebSearchForEntitiesWorker started for {self.fn.__name__} with {len(self.entities)} entities.")
+        
+        all_results = {} # {entity_string: [search_results_for_entity]}
+
+        try:
+            for entity in self.entities:
+                if not entity or not isinstance(entity, str):
+                    logger.warning(f"Skipping invalid entity: {entity}")
+                    continue
+                
+                logger.debug(f"Searching for entity: {entity}")
+                # The self.fn is the search_fn passed during __init__.
+                # It should be designed to take an entity string and possibly original_note_text.
+                # Example: search_fn(query=entity, original_note_text=self.original_note_text, ...other_kwargs_from_super_init)
+                
+                # Prepare kwargs for the actual search function call
+                # The 'progress_callback' is already in self.kwargs from the parent Worker's __init__
+                # We are calling the main function `self.fn` (which is `perform_web_searches_for_entities`)
+                # This function itself would then iterate or call sub-functions.
+                # This worker's primary role is to manage the overall process for *all* entities.
+                # Let's adjust: the `self.fn` itself should handle the iteration and calling the *actual* per-entity search.
+                # So, WebSearchForEntitiesWorker's `run` method calls `self.fn` once, passing the list of entities.
+
+                # Corrected approach: The function `self.fn` (perform_web_searches_for_entities)
+                # is responsible for iterating through entities and performing searches.
+                # The worker just calls this main function.
+                
+                # Kwargs for the main search function (self.fn)
+                current_kwargs = self.kwargs.copy()
+                current_kwargs['entities'] = self.entities
+                if self.original_note_text:
+                    current_kwargs['original_note_text'] = self.original_note_text
+
+                # The `fn` (e.g., `perform_web_searches_for_entities`) should return a dict like {entity: results}
+                # and handle its own progress reporting if it's a long process covering multiple entities.
+                # If `fn` is just a simple search for ONE entity, then this loop structure is correct.
+                # Based on AIManager, `perform_web_searches_for_entities` is the main function, so it handles the loop.
+
+                result_for_all_entities = self.fn(**current_kwargs)
+                all_results = result_for_all_entities # Assuming fn returns the final dict
+                break # Since self.fn handles all entities, we break after the first call.
+
+            # If self.fn handles progress internally, this worker's progress signal might be less useful
+            # unless self.fn itself uses the provided progress_callback for sub-steps.
+            # self.signals.progress.emit(100) # Indicate completion of the overall task
+            # Let perform_web_searches_for_entities handle progress via the callback if needed.
+
+        except Exception as e:
+            logger.error(f"Error in WebSearchForEntitiesWorker thread: {e}")
+            traceback_str = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+            logger.error(traceback_str)
+            self.signals.error.emit((type(e), str(e), traceback_str))
+        else:
+            self.signals.result.emit(all_results) 
+        finally:
+            self.signals.finished.emit()
+            logger.info("WebSearchForEntitiesWorker finished.")
+
+
 class ApiSummarizationWorker(Worker):
     """
     Worker thread specifically for API-based text summarization.
@@ -199,18 +282,13 @@ class ApiSummarizationWorker(Worker):
             api_key (str): The API key for the summarization service.
             model_id (str): The model ID to be used by the API.
         """
-        super().__init__(
-            summarize_api_fn,
-            text=text,          # Pass as keyword argument for clarity
-            api_key=api_key,    # Pass as keyword argument
-            model_id=model_id   # Pass as keyword argument
-        )
-        logger.info("ApiSummarizationWorker initialized for model: %s" % model_id)
+        super().__init__(summarize_api_fn, text=text, api_key=api_key, model_id=model_id)
+        logger.info("ApiSummarizationWorker initialized for %s with model: %s" % (summarize_api_fn.__name__, model_id))
 
 
 class LocalSummarizationWorker(Worker):
     """
-    Worker thread specifically for local text summarization using Hugging Face pipeline.
+    Worker thread specifically for local text summarization.
     
     Inherits from Worker and calls a local summarization function.
     """
@@ -222,14 +300,10 @@ class LocalSummarizationWorker(Worker):
         Args:
             summarize_local_fn: The local summarization function to call (e.g., summarize_text_local).
             text (str): The text to summarize.
-            model_id (str): The model ID to be used by the local pipeline.
+            model_id (str): The model ID to be used locally.
         """
-        super().__init__(
-            summarize_local_fn,
-            text=text,          # Pass as keyword argument for clarity
-            model_id=model_id   # Pass as keyword argument
-        )
-        logger.info("LocalSummarizationWorker initialized for model: %s" % model_id)
+        super().__init__(summarize_local_fn, text=text, model_id=model_id)
+        logger.info("LocalSummarizationWorker initialized for %s with model: %s" % (summarize_local_fn.__name__, model_id))
 
 
 class ApiTextGenerationWorker(Worker):
@@ -250,15 +324,105 @@ class ApiTextGenerationWorker(Worker):
             model_id (str): The model ID to be used by the API.
             max_new_tokens (int): The maximum number of new tokens to generate.
         """
-        super().__init__(
-            generate_api_fn,
-            text_prompt=prompt_text, # Pass as keyword argument for clarity
-            api_key=api_key,         # Pass as keyword argument
-            model_id=model_id,       # Pass as keyword argument
-            max_new_tokens=max_new_tokens # Pass as keyword argument
-        )
-        logger.info("ApiTextGenerationWorker initialized for model: %s with max_new_tokens: %d" % (model_id, max_new_tokens))
+        super().__init__(generate_api_fn, prompt_text=prompt_text, api_key=api_key, model_id=model_id, max_new_tokens=max_new_tokens)
+        logger.info("ApiTextGenerationWorker initialized for %s with model: %s" % (generate_api_fn.__name__, model_id))
 
+
+class GeminiSummarizationWorker(Worker):
+    """
+    Worker thread specifically for Google Gemini API-based text summarization.
+    """
+
+    def __init__(self, summarize_gemini_fn, text: str, api_key: str, model_id: str, generation_config: dict = None, safety_settings: list = None):
+        """
+        Initialize the Gemini summarization worker.
+
+        Args:
+            summarize_gemini_fn: The Gemini summarization function (e.g., summarize_text_gemini_api).
+            text (str): The text to summarize.
+            api_key (str): The Google API key.
+            model_id (str): The Gemini model ID (e.g., 'gemini-pro').
+            generation_config (dict, optional): Configuration for generation.
+            safety_settings (list, optional): Safety settings for the API call.
+        """
+        super().__init__(summarize_gemini_fn, text=text, api_key=api_key, model_id=model_id, generation_config=generation_config, safety_settings=safety_settings)
+        logger.info(f"GeminiSummarizationWorker initialized for {summarize_gemini_fn.__name__} with model: {model_id}")
+
+    @pyqtSlot()
+    def run(self):
+        """Execute the summarization task, transforming model_id to model_name for the API call."""
+        self.signals.started.emit()
+        if self.kwargs.get('progress_callback'):
+            self.kwargs['progress_callback'](0) # Initial progress
+
+        try:
+            # Prepare kwargs for the actual API call
+            api_kwargs = self.kwargs.copy()
+            if 'model_id' in api_kwargs:
+                api_kwargs['model_name'] = api_kwargs.pop('model_id')
+            
+            # summarize_text_gemini_api does not accept generation_config or safety_settings
+            api_kwargs.pop('generation_config', None) # Remove if exists, default to None if not
+            api_kwargs.pop('safety_settings', None)   # Remove if exists, default to None if not
+
+            result = self.fn(*self.args, **api_kwargs)
+            self.signals.result.emit(result)
+            if self.kwargs.get('progress_callback'):
+                 self.kwargs['progress_callback'](100) # Final progress
+
+        except Exception as e:
+            logger.error(f"Error in {self.__class__.__name__} thread: {e}")
+            traceback_str = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+            logger.error(traceback_str)
+            self.signals.error.emit((type(e), str(e), traceback_str))
+            if self.kwargs.get('progress_callback'):
+                self.kwargs['progress_callback'](100) # Final progress (on error)
+        finally:
+            self.signals.finished.emit()
+            logger.info(f"{self.__class__.__name__} finished.")
+
+
+class GeminiTextGenerationWorker(Worker):
+    """
+    Worker thread specifically for Google Gemini API-based text generation.
+    """
+
+    def __init__(self, 
+                 generate_gemini_fn, 
+                 text_prompt: str, 
+                 api_key: str, 
+                 model_name: str, 
+                 max_new_tokens: int, # This is what AIManager provides
+                 generation_config: dict = None, 
+                 safety_settings: list = None):
+        """
+        Initialize the Gemini text generation worker.
+
+        Args:
+            generate_gemini_fn: The Gemini text generation function (e.g., generate_text_gemini_api).
+            text_prompt (str): The prompt to generate text from.
+            api_key (str): The Google API key.
+            model_name (str): The Gemini model name (e.g., 'gemini-pro').
+            max_new_tokens (int): Max tokens for generation (will be passed as max_output_tokens to the API function).
+            generation_config (dict, optional): Configuration for generation.
+            safety_settings (list, optional): Safety settings for the API call.
+        """
+        # Arguments passed to super().__init__ become kwargs for generate_gemini_fn
+        # Ensure they match the signature of generate_text_gemini_api
+        
+        init_kwargs = {
+            'text_prompt': text_prompt,
+            'api_key': api_key,
+            'model_name': model_name,
+            'max_output_tokens': max_new_tokens # Map to what generate_text_gemini_api expects
+        }
+        if generation_config is not None:
+            init_kwargs['generation_config'] = generation_config
+        if safety_settings is not None:
+            init_kwargs['safety_settings'] = safety_settings
+            
+        super().__init__(generate_gemini_fn, **init_kwargs)
+        logger.info(f"GeminiTextGenerationWorker initialized for {generate_gemini_fn.__name__} with model: {model_name}")
 
 class EntityExtractionWorker(Worker):
     """Worker thread for entity extraction."""

@@ -16,11 +16,10 @@ import json
 from transformers import pipeline # Added import
 import spacy # Added for entity extraction
 
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+import google.generativeai as genai
+from google.api_core import exceptions as google_exceptions
+
+
 logger = logging.getLogger(__name__)
 
 def summarize_text_local(text: str, model_id: str = "facebook/bart-large-cnn", progress_callback=None):
@@ -299,6 +298,176 @@ def generate_text_hf_api(text_prompt: str, api_key: str, model_id: str = "gpt2",
             progress_callback(100)  # Indicate completion (with error)
         raise RuntimeError("Invalid JSON response from Hugging Face API for text generation.")
 
+_gemini_api_configured = False
+
+def configure_gemini_api(api_key: str):
+    """Configure the Google Gemini API with the provided key."""
+    global _gemini_api_configured
+    if not api_key:
+        logger.error("Google API key is missing for configuration.")
+        _gemini_api_configured = False
+        raise ValueError("API key for Google Gemini is required.")
+    try:
+        genai.configure(api_key=api_key)
+        _gemini_api_configured = True
+        logger.info("Google Gemini API configured successfully.")
+    except Exception as e:
+        _gemini_api_configured = False
+        logger.error(f"Failed to configure Google Gemini API: {e}")
+        raise RuntimeError(f"Failed to configure Google Gemini API: {e}")
+
+def _ensure_gemini_configured(api_key: Optional[str] = None):
+    """Ensures Gemini API is configured, optionally using the provided key."""
+    global _gemini_api_configured
+    if not _gemini_api_configured:
+        if not api_key:
+            logger.error("Google Gemini API key not provided and API not configured.")
+            raise ValueError("Google Gemini API key must be provided or API pre-configured.")
+        configure_gemini_api(api_key)
+    if not _gemini_api_configured:
+         raise RuntimeError("Google Gemini API is not configured. Please check API key and configuration.")
+
+def summarize_text_gemini_api(text: str, api_key: str, model_name: str = "gemini-pro", progress_callback=None):
+    """
+    Generate a summary of the given text using the Google Gemini API.
+
+    Args:
+        text (str): The text to summarize.
+        api_key (str): The Google API key.
+        model_name (str, optional): The Gemini model name. Defaults to "gemini-pro".
+        progress_callback (callable, optional): Callback for progress (0 to 100).
+
+    Returns:
+        str: The generated summary.
+
+    Raises:
+        RuntimeError: If there's an error calling the API or processing the response.
+        ValueError: If API key is invalid or missing.
+    """
+    logger.info(">>> Entering summarize_text_gemini_api - Gemini summarization process initiated. <<<") # Distinct log for entry
+    logger.info(f"Starting Gemini API summarization with model: {model_name}")
+    try:
+        _ensure_gemini_configured(api_key)
+        if progress_callback: progress_callback(0)
+
+        model = genai.GenerativeModel(model_name)
+        prompt = f"Please summarize the following text concisely and accurately:\n\n---\n{text}\n---\n\nSummary:"
+        
+        # Using a simple generation config for summarization for now.
+        # More complex configs can be added if needed (e.g. temperature, top_p)
+        generation_config = genai.types.GenerationConfig(
+            candidate_count=1,
+            # max_output_tokens can be tuned. Gemini Pro has a large context window.
+            # For summarization, we might want to control this if the input text is very long.
+        )
+
+        if progress_callback: progress_callback(30) # After setup, before API call
+
+        response = model.generate_content(prompt, generation_config=generation_config)
+
+        if progress_callback: progress_callback(70) # After API call, before processing
+
+        if not response.candidates or not response.candidates[0].content.parts:
+            logger.error("Gemini API returned no valid candidates or parts in the response.")
+            raise RuntimeError("Gemini API did not return a valid summary.")
+
+        summary = response.text # .text helper combines parts
+        logger.info(f"Gemini API summary generated. Length: {len(summary)}")
+        
+        if progress_callback: progress_callback(100)
+        return summary
+
+    except google_exceptions.InvalidArgument as e:
+        logger.error(f"Gemini API Invalid Argument: {e}. This might be due to an unsupported model or an issue with the prompt/text.")
+        if progress_callback: progress_callback(100)
+        raise RuntimeError(f"Gemini API Invalid Argument: {e}")
+    except google_exceptions.PermissionDenied as e:
+        logger.error(f"Gemini API Permission Denied: {e}. Check API key and project permissions.")
+        if progress_callback: progress_callback(100)
+        raise ValueError(f"Gemini API Permission Denied. Ensure API key is valid and has permissions: {e}")
+    except google_exceptions.DeadlineExceeded as e:
+        logger.error(f"Gemini API request timed out: {e}")
+        if progress_callback: progress_callback(100)
+        raise RuntimeError(f"Gemini API request timed out: {e}")
+    except google_exceptions.GoogleAPIError as e: # Catch other Google API errors
+        logger.error(f"Google Gemini API error: {e}")
+        if progress_callback: progress_callback(100)
+        raise RuntimeError(f"Google Gemini API error: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error during Gemini API summarization: {e}")
+        if progress_callback: progress_callback(100)
+        import traceback
+        logger.error(traceback.format_exc())
+        raise RuntimeError(f"Unexpected error during Gemini API summarization: {e}")
+
+def generate_text_gemini_api(text_prompt: str, api_key: str, model_name: str = "gemini-pro", progress_callback=None, max_output_tokens: int = 1024):
+    """
+    Generate text using the Google Gemini API based on a prompt.
+
+    Args:
+        text_prompt (str): The prompt to generate text from.
+        api_key (str): The Google API key.
+        model_name (str, optional): The Gemini model name. Defaults to "gemini-pro".
+        progress_callback (callable, optional): Callback for progress (0 to 100).
+        max_output_tokens (int, optional): Maximum number of tokens for the generated text.
+
+    Returns:
+        str: The generated text.
+
+    Raises:
+        RuntimeError: If there's an error calling the API or processing the response.
+        ValueError: If API key is invalid or missing.
+    """
+    logger.info(f"Starting Gemini API text generation with model: {model_name}")
+    try:
+        _ensure_gemini_configured(api_key)
+        if progress_callback: progress_callback(0)
+
+        model = genai.GenerativeModel(model_name)
+        generation_config = genai.types.GenerationConfig(
+            candidate_count=1,
+            max_output_tokens=max_output_tokens
+        )
+
+        if progress_callback: progress_callback(30) # After setup, before API call
+
+        response = model.generate_content(text_prompt, generation_config=generation_config)
+
+        if progress_callback: progress_callback(70) # After API call, before processing
+
+        if not response.candidates or not response.candidates[0].content.parts:
+            logger.error("Gemini API returned no valid candidates or parts in the response for text generation.")
+            raise RuntimeError("Gemini API did not return valid generated text.")
+
+        generated_text = response.text
+        logger.info(f"Gemini API text generated. Length: {len(generated_text)}")
+        
+        if progress_callback: progress_callback(100)
+        return generated_text
+
+    except google_exceptions.InvalidArgument as e:
+        logger.error(f"Gemini API Invalid Argument for text generation: {e}")
+        if progress_callback: progress_callback(100)
+        raise RuntimeError(f"Gemini API Invalid Argument for text generation: {e}")
+    except google_exceptions.PermissionDenied as e:
+        logger.error(f"Gemini API Permission Denied for text generation: {e}. Check API key.")
+        if progress_callback: progress_callback(100)
+        raise ValueError(f"Gemini API Permission Denied for text generation: {e}")
+    except google_exceptions.DeadlineExceeded as e:
+        logger.error(f"Gemini API text generation request timed out: {e}")
+        if progress_callback: progress_callback(100)
+        raise RuntimeError(f"Gemini API text generation request timed out: {e}")
+    except google_exceptions.GoogleAPIError as e: # Catch other Google API errors
+        logger.error(f"Google Gemini API error during text generation: {e}")
+        if progress_callback: progress_callback(100)
+        raise RuntimeError(f"Google Gemini API error during text generation: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error during Gemini API text generation: {e}")
+        if progress_callback: progress_callback(100)
+        import traceback
+        logger.error(traceback.format_exc())
+        raise RuntimeError(f"Unexpected error during Gemini API text generation: {e}")
+
 def perform_question_answering(original_note_text: str, extracted_entities: list, web_content_collated: str, qna_model_id: str = "distilbert-base-cased-distilled-squad", progress_callback=None, max_questions: int = 3):
     """
     Performs Question Answering on the provided web content based on extracted entities.
@@ -309,7 +478,7 @@ def perform_question_answering(original_note_text: str, extracted_entities: list
         web_content_collated (str): Collated text content fetched from web sources.
         qna_model_id (str, optional): The Hugging Face model ID for question answering.
                                       Defaults to "distilbert-base-cased-distilled-squad".
-        progress_callback (callable, optional): Callback for progress updates.
+        progress_callback (callable, optional): Callback function to report progress.
         max_questions (int, optional): Maximum number of questions to generate from entities.
 
     Returns:
@@ -414,3 +583,107 @@ def extract_entities_spacy(text: str, model_id: str = "en_core_web_sm", progress
         # Return empty list as per contract, error already logged
     
     return entities
+
+def extract_keywords_spacy(text: str, num_keywords: int = 5) -> List[str]:
+    """
+    Extract keywords from text using a spaCy model.
+
+    Args:
+        text (str): The text to process.
+        num_keywords (int, optional): The number of keywords to extract. Defaults to 5.
+
+    Returns:
+        List[str]: A list of extracted keywords.
+    """
+    logger.info(f"Starting keyword extraction with spaCy for text of length: {len(text)}")
+
+    keywords = []
+    try:
+        try:
+            nlp = spacy.load("en_core_web_sm")
+            logger.info(f"spaCy model 'en_core_web_sm' loaded successfully.")
+        except OSError:
+            logger.error(f"spaCy model 'en_core_web_sm' not found. Downloading...")
+            spacy.cli.download("en_core_web_sm")
+            nlp = spacy.load("en_core_web_sm")
+            logger.info(f"spaCy model 'en_core_web_sm' downloaded and loaded successfully.")
+        
+        doc = nlp(text)
+        keywords = [token.text for token in doc if not token.is_stop and token.is_alpha and token.pos_ in ["NOUN", "PROPN"]]
+        keywords = keywords[:num_keywords]
+        logger.info(f"Extracted {len(keywords)} keywords: {keywords}...")
+    
+    except ImportError:
+        logger.error("spaCy library not found. Please ensure it is installed.")
+        # Return empty list as per contract, error already logged
+    except Exception as e:
+        logger.error(f"Error during spaCy keyword extraction: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        # Return empty list as per contract, error already logged
+    
+    return keywords
+
+# Ensure the logger used in this module has handlers configured if run standalone
+# This is more for testing/running this file directly if needed
+if __name__ == "__main__" and not logger.hasHandlers():
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG) # Or INFO
+    
+    # Test local summarization
+    # try:
+    #     test_text = ("This is a very long piece of text that needs to be summarized. "
+    #                  "It talks about various things including programming, AI, and the weather. "
+    #                  "The goal is to get a concise summary that captures the main points. "
+    #                  "Let's see how well the local summarization model performs on this. "
+    #                  "It should be shorter than this original text, obviously.") * 5
+    #     print("\n--- Testing Local Summarization ---")
+    #     summary = summarize_text_local(test_text)
+    #     print(f"Original length: {len(test_text)}, Summary length: {len(summary)}")
+    #     print(f"Summary: {summary}")
+    # except Exception as e:
+    #     print(f"Local summarization test failed: {e}")
+
+    # Test Hugging Face API summarization (requires HUGGINGFACE_API_KEY environment variable)
+    # try:
+    #     hf_api_key = os.getenv("HUGGINGFACE_API_KEY")
+    #     if hf_api_key:
+    #         print("\n--- Testing Hugging Face API Summarization ---")
+    #         summary_hf = summarize_text_hf_api(test_text, hf_api_key)
+    #         print(f"Original length: {len(test_text)}, Summary length: {len(summary_hf)}")
+    #         print(f"HF API Summary: {summary_hf}")
+    #     else:
+    #         print("\nSkipping Hugging Face API summarization test: HUGGINGFACE_API_KEY not set.")
+    # except Exception as e:
+    #     print(f"Hugging Face API summarization test failed: {e}")
+
+    # Test Gemini API summarization (requires GOOGLE_API_KEY environment variable)
+    # try:
+    #     google_api_key = os.getenv("GOOGLE_API_KEY")
+    #     if google_api_key:
+    #         print("\n--- Testing Google Gemini API Summarization ---")
+    #         configure_gemini_api(google_api_key) # Configure once
+    #         summary_gemini = summarize_text_gemini_api(test_text, google_api_key) # Pass key again or rely on pre-config
+    #         print(f"Original length: {len(test_text)}, Summary length: {len(summary_gemini)}")
+    #         print(f"Gemini API Summary: {summary_gemini}")
+    #     else:
+    #         print("\nSkipping Google Gemini API summarization test: GOOGLE_API_KEY not set.")
+    # except Exception as e:
+    #     print(f"Google Gemini API summarization test failed: {e}")
+
+    # Test spaCy entity and keyword extraction
+    # try:
+    #     print("\n--- Testing spaCy Entity Extraction ---")
+    #     entities = extract_entities_spacy(test_text)
+    #     print(f"Entities: {entities}")
+
+    #     print("\n--- Testing spaCy Keyword Extraction ---")
+    #     keywords = extract_keywords_spacy(test_text)
+    #     print(f"Keywords: {keywords}")
+    # except Exception as e:
+    #     print(f"spaCy extraction tests failed: {e}")
+
+# Removed inaccurate comment about duplicated functions that was here.

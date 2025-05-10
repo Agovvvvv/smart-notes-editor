@@ -1,5 +1,8 @@
 from PyQt5.QtWidgets import QAction, QToolBar
 from PyQt5.QtGui import QIcon
+import logging
+
+logger = logging.getLogger(__name__)
 
 def create_file_menu(main_window, menubar):
     """Creates and returns the File menu."""
@@ -100,16 +103,17 @@ def create_ai_tools_menu(main_window, menubar):
     ai_menu.addAction(main_window.generate_note_action)
 
     main_window.enhance_note_action = QAction(QIcon.fromTheme("system-run"), "&Enhance Note", main_window)
-    main_window.enhance_note_action.setStatusTip("Analyze the current note, fetch relevant web info, and suggest enhancements")
-    main_window.enhance_note_action.triggered.connect(main_window.on_trigger_full_enhancement_pipeline)
+    main_window.enhance_note_action.setStatusTip("Enhance the current note directly using AI")
+    main_window.enhance_note_action.triggered.connect(main_window.enhance_current_note_with_ai)
     ai_menu.addAction(main_window.enhance_note_action)
 
     ai_menu.addSeparator()
-    main_window.configure_ai_services_action = QAction(QIcon.fromTheme("preferences-system"), "&Configure AI Services...", main_window)
-    main_window.configure_ai_services_action.setStatusTip("Configure AI model and API settings")
-    main_window.configure_ai_services_action.triggered.connect(main_window._configure_ai_services)
+    # Temporarily modify for diagnostics
+    main_window.configure_ai_services_action = QAction(QIcon.fromTheme("document-new"), "&AI Services", main_window)
+    main_window.configure_ai_services_action.setStatusTip("Configure AI services")
+    main_window.configure_ai_services_action.triggered.connect(main_window.configure_ai_services) # Revert to original slot
     ai_menu.addAction(main_window.configure_ai_services_action)
-    
+
     return ai_menu
 
 def create_view_menu(main_window, menubar):
@@ -182,10 +186,6 @@ def populate_toolbar(main_window, toolbar):
     
     toolbar.addSeparator()
     
-    # Use the existing summarize_action from main_window if it's defined by create_ai_tools_menu
-    # It's generally better to create a distinct action for the toolbar if icons/text differ,
-    # or reuse if they are identical and main_window.summarize_action is reliably set beforehand.
-    # For clarity and independence, creating a new one here:
     summarize_tb_action = QAction(QIcon.fromTheme("edit-paste"), "Summarize", main_window)
     summarize_tb_action.setStatusTip("Summarize the current note using AI")
     summarize_tb_action.triggered.connect(main_window.on_summarize_note)
@@ -198,7 +198,7 @@ def populate_toolbar(main_window, toolbar):
 
     toolbar.addSeparator()
 
-    enhance_tb_action = QAction(QIcon.fromTheme("system-run"), "Enhance Note", main_window) # Consider a more specific icon
+    enhance_tb_action = QAction(QIcon.fromTheme("system-run"), "Enhance Note", main_window) 
     enhance_tb_action.setStatusTip("Automatically enhance note with AI-generated content")
-    enhance_tb_action.triggered.connect(main_window.on_auto_enhance) # Changed from on_trigger_full_enhancement_pipeline to on_auto_enhance based on original main_window.py toolbar
+    enhance_tb_action.triggered.connect(main_window.on_auto_enhance) 
     toolbar.addAction(enhance_tb_action)

@@ -21,9 +21,12 @@
         "theme": "light"
     },
     "ai": {
+        "backend": "google_gemini",
         "huggingface_api_key": "",
         "huggingface_summarization_model_id": "facebook/bart-large-cnn",
         "huggingface_text_generation_model_id": "gpt2",
+        "google_api_key": "AIzaSyAVel-0TKphsjFBKSjk6uqeLX6WTGuqk0g",
+        "max_links_for_qna": 3,
         "summarization_backend": "local",
         "model": "facebook/bart-large-cnn"
     }

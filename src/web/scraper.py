@@ -15,11 +15,6 @@ from typing import Dict, List, Optional, Tuple, Union
 from bs4 import BeautifulSoup
 from urllib.robotparser import RobotFileParser
 
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 # Constants
@@ -137,28 +132,50 @@ def search_web(query: str, progress_callback=None) -> List[Dict[str, str]]:
         
         # Extract search results
         results = []
-        result_elements = soup.select('.result')
+        # Try a broader set of selectors for result containers
+        result_elements = soup.select('div.web-result, div.result, .results_links_deep .result__body, div.result--html')
         
         if not result_elements:
-            logger.warning("No search results found or unexpected page structure")
-            return []
+            # Fallback selectors if the primary ones don't work
+            result_elements = soup.select('div.results > div') # Common generic structure
+            if not result_elements:
+                logger.warning(f"No search results found or unexpected page structure using primary and fallback selectors. URL: {search_url}")
+                # Log a snippet of the page for debugging if selectors fail
+                page_snippet = response.text[:1000] if response else "No response text"
+                logger.debug(f"Page snippet for {search_url}:\n{page_snippet}")
+                return []
             
-        for i, result in enumerate(result_elements[:MAX_SEARCH_RESULTS]):
+        for i, result_container in enumerate(result_elements[:MAX_SEARCH_RESULTS]):
             try:
-                title_element = result.select_one('.result__title')
-                url_element = result.select_one('.result__url')
-                snippet_element = result.select_one('.result__snippet')
+                # More robust selectors for title, URL, and snippet
+                title_element = result_container.select_one('.result__title a, .result__a, h2.result-title a, a.result-title')
+                # URL element is often the same as the title link, or a specific URL link
+                url_element = result_container.select_one('.result__url a, .result__a, a.result-link, .result__extras__url a') 
+                snippet_element = result_container.select_one('.result__snippet, .result-snippet, .result__body')
                 
                 if title_element and url_element:
                     title = title_element.get_text(strip=True)
-                    url = url_element.get_text(strip=True)
+                    # Extract URL from the href attribute
+                    url = url_element.get('href', '').strip()
                     
-                    # Ensure URL has a scheme
-                    if not url.startswith(('http://', 'https://')):
+                    # DuckDuckGo HTML results often have URLs like "/l/?uddg=..."
+                    if url.startswith('/l/'):
+                        parsed_url = urllib.parse.urlparse(url)
+                        query_params = urllib.parse.parse_qs(parsed_url.query)
+                        if 'uddg' in query_params and query_params['uddg']:
+                            url = query_params['uddg'][0]
+                    
+                    # Ensure URL has a scheme if it's not a relative DDG link
+                    if not url.startswith(('http://', 'https://')) and not url.startswith('/'):
                         url = 'https://' + url
                         
                     snippet = snippet_element.get_text(strip=True) if snippet_element else ""
                     
+                    # Filter out empty or clearly non-result items
+                    if not title or not url or url == "#":
+                        logger.debug(f"Skipping potential non-result item: title='{title}', url='{url}'")
+                        continue
+
                     results.append({
                         'title': title,
                         'url': url,
@@ -170,15 +187,85 @@ def search_web(query: str, progress_callback=None) -> List[Dict[str, str]]:
                         progress = 30 + int(50 * (i + 1) / min(len(result_elements), MAX_SEARCH_RESULTS))
                         progress_callback(progress)
             except Exception as e:
-                logger.warning(f"Error parsing search result: {str(e)}")
+                logger.warning(f"Error parsing a search result item: {str(e)}")
+                logger.debug(f"Problematic result item HTML: {result_container.prettify()[:500]}", exc_info=True)
                 continue
                 
-        logger.info(f"Found {len(results)} search results")
+        if not results and result_elements:
+             logger.warning(f"Found {len(result_elements)} potential result containers, but failed to extract details from any.")
+
+        logger.info(f"Found {len(results)} search results for '{query}'")
         return results
         
     except Exception as e:
-        logger.error(f"Error searching web: {str(e)}")
+        logger.error(f"Error searching web for '{query}': {str(e)}", exc_info=True)
         raise NetworkError(f"Error searching web: {str(e)}")
+
+def perform_web_searches_for_entities(
+    entities: List[str],
+    original_note_text: Optional[str] = None, # For API consistency, not used directly by search_web
+    progress_callback: Optional[callable] = None,
+    **kwargs # To catch any other kwargs like the one from Worker base class
+) -> Dict[str, Union[List[Dict[str, str]], str]]:
+    """
+    Performs web searches for a list of entities and collates the results.
+
+    Args:
+        entities (List[str]): A list of entity strings to search for.
+        original_note_text (Optional[str]): The original note text, for context (currently unused).
+        progress_callback (Optional[callable]): A function to call with progress (0-100).
+        **kwargs: Catches unused kwargs like progress_callback from the base Worker if not explicitly handled.
+
+    Returns:
+        Dict[str, Union[List[Dict[str, str]], str]]: A dictionary where keys are entity strings
+        and values are lists of search result dictionaries (title, url, snippet) or an error message string.
+    """
+    logger.info(f"Performing web searches for {len(entities)} entities.")
+    results_for_all_entities: Dict[str, Union[List[Dict[str, str]], str]] = {}
+    total_entities = len(entities)
+
+    if not total_entities:
+        if progress_callback:
+            progress_callback(100)
+        return {}
+
+    for i, entity in enumerate(entities):
+        current_base_progress = (i / total_entities) * 100
+        current_entity_progress_weight = 1 / total_entities
+
+        # Pass loop-dependent values as default arguments to capture their current state
+        def entity_specific_progress_callback(entity_progress_value, 
+                                                base_prog=current_base_progress, 
+                                                weight=current_entity_progress_weight):
+            if progress_callback:
+                overall_progress = base_prog + (entity_progress_value * weight)
+                progress_callback(int(overall_progress))
+
+        if progress_callback:
+            progress_callback(int(current_base_progress)) # Report progress before starting search for entity
+
+        try:
+            logger.debug(f"Searching web for entity: '{entity}'")
+            # Pass the wrapped progress callback to search_web
+            search_results = search_web(query=entity, progress_callback=entity_specific_progress_callback)
+            results_for_all_entities[entity] = search_results
+            logger.debug(f"Found {len(search_results)} results for entity: '{entity}'")
+        except NetworkError as e:
+            logger.error(f"NetworkError searching for entity '{entity}': {e}")
+            results_for_all_entities[entity] = f"Error: {str(e)}" # Store error message
+        except Exception as e:
+            logger.error(f"Unexpected error searching for entity '{entity}': {e}", exc_info=True)
+            results_for_all_entities[entity] = f"Unexpected error: {str(e)}"
+        
+        # Ensure final progress for this entity step is reported if search_web finishes early
+        if progress_callback:
+            progress_callback(int(current_base_progress + (100 * current_entity_progress_weight)))
+
+    if progress_callback:
+        progress_callback(100) # Final progress update
+
+    logger.info(f"Finished web searches for {len(entities)} entities.")
+    return results_for_all_entities
 
 def scrape_page_content(url: str, progress_callback=None) -> Dict[str, str]:
     """

@@ -24,7 +24,7 @@ class WebController(QObject):
     content_fetch_started = pyqtSignal(str)
     content_fetch_progress = pyqtSignal(int)
     content_fetch_result = pyqtSignal(dict)
-    content_fetch_error = pyqtSignal(tuple)
+    content_fetch_error = pyqtSignal(dict) # Ensures this emits a dictionary
     content_fetch_finished = pyqtSignal()
     
     def __init__(self, main_window):
@@ -96,9 +96,35 @@ class WebController(QObject):
         """Handle content fetch result event."""
         self.content_fetch_result.emit(result)
     
-    def _on_content_fetch_error(self, error_info):
-        """Handle content fetch error event."""
-        self.content_fetch_error.emit(error_info)
+    def _on_content_fetch_error(self, error_info): # error_info is typically (url, error_str) from WebSearchManager
+        """Handle content fetch error event from WebSearchManager and emit a standardized dict."""
+        url, error_msg_str = "Unknown URL", "Unknown error" # Defaults
+        trace_str = ""
+
+        if isinstance(error_info, tuple) and len(error_info) >= 2:
+            url = error_info[0]
+            error_msg_str = error_info[1]
+            if len(error_info) > 2: # Potentially a traceback string if provided
+                trace_str = error_info[2]
+        elif isinstance(error_info, dict):
+            url = error_info.get('url', url)
+            error_msg_str = error_info.get('error', error_msg_str)
+            trace_str = error_info.get('traceback', trace_str)
+        elif isinstance(error_info, str):
+            error_msg_str = error_info
+        
+        if not trace_str and logger.isEnabledFor(logging.DEBUG):
+             try:
+                 raise RuntimeError("Generating traceback for error")
+             except RuntimeError:
+                 trace_str = traceback.format_exc()
+
+        error_dict = {
+            'url': url,
+            'error': error_msg_str,
+            'traceback': trace_str
+        }
+        self.content_fetch_error.emit(error_dict)
     
     def _on_content_fetch_finished(self):
         """Handle content fetch finished event."""
@@ -153,8 +179,13 @@ class WebController(QObject):
         try:
             self.web_search_manager.fetch_content(url)
         except Exception as e:
-            error_info = (type(e), e, traceback.format_exc())
-            self.content_fetch_error.emit(error_info)
+            logger.error(f"Exception in WebController.fetch_content for URL {url}: {e}\n{traceback.format_exc()}")
+            error_dict = {
+                'url': url,
+                'error': str(e),
+                'traceback': traceback.format_exc()
+            }
+            self.content_fetch_error.emit(error_dict)
             self.content_fetch_finished.emit()
     
     def get_last_search_results(self):
@@ -168,63 +199,16 @@ class WebController(QObject):
 
     def fetch_url_content(self, url, context=None):
         """
-        Fetch content from a URL and attach context for downstream consumers (e.g., QnA enhancement).
+        Fetch content from a URL. The 'context' parameter is for the caller's reference;
+        this WebController method does not use it directly for signal emission.
+        It calls the standard fetch_content, which emits generic signals.
+        The caller (e.g., AIController) should connect to these generic signals and manage
+        correlating the result/error with any specific context it maintained.
         Args:
             url (str): The URL to fetch content from
-            context (dict): Extra context to attach to the result/error
+            context (dict, optional): Extra context for the caller's use. Not used by this method.
         """
-        import traceback
-        if context is None:
-            context = {}
-        try:
-            from PyQt5.QtCore import QMetaObject
-            # Wrap the result/error handlers to inject context
-            def on_result(result):
-                # result is expected to be a dict with at least 'url' and 'content'
-                result_with_context = dict(result)
-                result_with_context['context'] = context
-                self.content_fetch_result.emit(result_with_context)
-                self.content_fetch_finished.emit()
-                disconnect_all()
-
-            def on_error(error_info):
-                # error_info could be a tuple or dict; standardize to dict
-                if isinstance(error_info, tuple):
-                    error_type, error_obj, tb = error_info
-                    error_dict = {
-                        'url': url,
-                        'error': str(error_obj),
-                        'context': context,
-                        'traceback': tb
-                    }
-                else:
-                    error_dict = dict(error_info)
-                    error_dict['context'] = context
-                self.content_fetch_error.emit(error_dict)
-                self.content_fetch_finished.emit()
-                disconnect_all()
-
-            def disconnect_all():
-                try:
-                    self.content_fetch_result.disconnect(on_result)
-                except Exception:
-                    pass
-                try:
-                    self.content_fetch_error.disconnect(on_error)
-                except Exception:
-                    pass
-
-            self.content_fetch_result.connect(on_result)
-            self.content_fetch_error.connect(on_error)
-
-            # Call the existing fetch_content (will emit signals above)
-            self.fetch_content(url)
-        except Exception as e:
-            error_dict = {
-                'url': url,
-                'error': str(e),
-                'context': context,
-                'traceback': traceback.format_exc()
-            }
-            self.content_fetch_error.emit(error_dict)
-            self.content_fetch_finished.emit()
+        logger.debug(f"WebController: fetch_url_content initiated for URL: {url}. Context is for caller's use.")
+        # The actual fetching is done by self.fetch_content, which handles signal emissions
+        # (_on_content_fetch_result, _on_content_fetch_error -> content_fetch_result, content_fetch_error signals)
+        self.fetch_content(url)

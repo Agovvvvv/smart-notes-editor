@@ -13,11 +13,6 @@ from PyQt5.QtCore import QObject, pyqtSignal, QThread
 from backend import context_analyzer
 from utils.threads import Worker
 
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 class ContextManager(QObject):

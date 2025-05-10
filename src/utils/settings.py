@@ -10,11 +10,6 @@ import os
 import json
 import logging
 
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 class Settings:
@@ -53,9 +48,11 @@ class Settings:
                 "theme": "light"  # light or dark
             },
             "ai": {
+                "backend": "local",  # Options: local, huggingface_api, google_gemini
                 "huggingface_api_key": "",
                 "huggingface_summarization_model_id": "facebook/bart-large-cnn", # Default model ID
                 "huggingface_text_generation_model_id": "gpt2",  # Default text generation model ID
+                "google_api_key": "",
                 "max_links_for_qna": 3 # Default number of links to fetch for Q&A
             }
         }

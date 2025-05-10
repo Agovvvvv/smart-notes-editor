@@ -9,11 +9,6 @@ Handles web search operations and result processing.
 import logging
 from PyQt5.QtCore import QObject, QThreadPool, pyqtSignal
 
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 class WebSearchManager(QObject):

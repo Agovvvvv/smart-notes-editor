@@ -11,11 +11,6 @@ import re
 from typing import Dict, List, Optional, Tuple, Union
 import time
 
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 # Global variables for models
