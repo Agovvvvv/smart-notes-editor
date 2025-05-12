@@ -400,7 +400,7 @@ def summarize_text_gemini_api(text: str, api_key: str, model_name: str = "gemini
         logger.error(traceback.format_exc())
         raise RuntimeError(f"Unexpected error during Gemini API summarization: {e}")
 
-def generate_text_gemini_api(text_prompt: str, api_key: str, model_name: str = "gemini-pro", progress_callback=None, max_output_tokens: int = 1024):
+def generate_text_gemini_api(text_prompt: str, api_key: str, model_name: str = "gemini-pro", progress_callback=None, max_output_tokens: int = 2048):
     """
     Generate text using the Google Gemini API based on a prompt.
 
@@ -467,76 +467,6 @@ def generate_text_gemini_api(text_prompt: str, api_key: str, model_name: str = "
         import traceback
         logger.error(traceback.format_exc())
         raise RuntimeError(f"Unexpected error during Gemini API text generation: {e}")
-
-def perform_question_answering(original_note_text: str, extracted_entities: list, web_content_collated: str, qna_model_id: str = "distilbert-base-cased-distilled-squad", progress_callback=None, max_questions: int = 3):
-    """
-    Performs Question Answering on the provided web content based on extracted entities.
-
-    Args:
-        original_note_text (str): The original text of the note (currently unused, but available for future context).
-        extracted_entities (list): A list of entities extracted from the note.
-        web_content_collated (str): Collated text content fetched from web sources.
-        qna_model_id (str, optional): The Hugging Face model ID for question answering.
-                                      Defaults to "distilbert-base-cased-distilled-squad".
-        progress_callback (callable, optional): Callback function to report progress.
-        max_questions (int, optional): Maximum number of questions to generate from entities.
-
-    Returns:
-        dict: A dictionary where keys are questions and values are answers.
-              Returns an empty dict if no entities or content, or if an error occurs.
-    """
-    logger.info(f"Starting Question Answering with model: {qna_model_id}. Entities: {len(extracted_entities)}, Content length: {len(web_content_collated)}")
-    if progress_callback: progress_callback(0)
-
-    if not extracted_entities or not web_content_collated:
-        logger.warning("No entities or web content provided for Q&A. Returning empty results.")
-        if progress_callback: progress_callback(100)
-        return {}
-
-    results = {}
-    try:
-        logger.info(f"Loading Q&A model: {qna_model_id}")
-        qa_pipeline = pipeline("question-answering", model=qna_model_id, device=-1) # device=-1 for CPU
-        logger.info(f"Q&A model {qna_model_id} loaded successfully.")
-
-        num_questions_to_ask = min(len(extracted_entities), max_questions)
-        
-        for i, entity in enumerate(extracted_entities[:num_questions_to_ask]):
-            question = f"What is {entity}?" # Simple question formulation
-            # Alternative: f"Tell me more about {entity} based on the provided context."
-            logger.info(f"Asking question ({i+1}/{num_questions_to_ask}): {question}")
-            
-            try:
-                answer_obj = qa_pipeline(question=question, context=web_content_collated)
-                if answer_obj and 'answer' in answer_obj:
-                    results[question] = answer_obj['answer']
-                    logger.info(f"Answer for '{question}': '{answer_obj['answer'][:100]}...' (Score: {answer_obj.get('score', 'N/A')})")
-                else:
-                    results[question] = "Could not find an answer."
-                    logger.warning(f"Could not find an answer for question: {question}. Pipeline output: {answer_obj}")
-            except Exception as e_inner:
-                logger.error(f"Error during Q&A pipeline for question '{question}': {e_inner}")
-                results[question] = f"Error processing this question: {e_inner}"
-            
-            if progress_callback:
-                progress_callback(int(((i + 1) / num_questions_to_ask) * 100))
-
-    except Exception as e:
-        logger.error(f"General error during Question Answering with model {qna_model_id}: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        # Optionally, communicate this error through a specific field in results or raise it
-        # For now, we return any partial results and log the error.
-        if progress_callback: progress_callback(100) # Mark as finished despite error
-        # To ensure the worker doesn't crash and AIController gets a dict:
-        if not results: # If no questions were even attempted
-             results["error"] = f"Failed to initialize Q&A: {str(e)}"
-        else: # If some questions were processed
-            results["processing_error"] = f"An error occurred during Q&A: {str(e)}"
-
-    logger.info(f"Question Answering finished. Generated {len(results)} answers.")
-    if progress_callback: progress_callback(100)
-    return results
 
 def extract_entities_spacy(text: str, model_id: str = "en_core_web_sm", progress_callback=None) -> List[str]:
     """
@@ -631,7 +561,6 @@ if __name__ == "__main__" and not logger.hasHandlers():
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-    logger.setLevel(logging.DEBUG) # Or INFO
     
     # Test local summarization
     # try:

@@ -19,7 +19,6 @@ from backend.ai_utils import (
     generate_text_hf_api,
     generate_text_gemini_api,
     configure_gemini_api, # For initializing Gemini API
-    perform_question_answering, # Keep for existing Q&A functionality
     extract_entities_spacy      # Keep for existing entity functionality
 )
 from utils.threads import (
@@ -28,9 +27,7 @@ from utils.threads import (
     GeminiSummarizationWorker,
     ApiTextGenerationWorker,     # Assuming this is for Hugging Face text generation
     GeminiTextGenerationWorker,
-    QuestionAnsweringWorker,   # Keep for existing Q&A functionality
     EntityExtractionWorker,     # Keep for existing entity functionality
-    WebSearchForEntitiesWorker # New worker for web search
 )
 
 logger = logging.getLogger(__name__)
@@ -46,7 +43,6 @@ class AIManager(QObject):
     DEFAULT_GEMINI_SUMMARIZATION_MODEL = GEMINI_2_0_FLASH # Default for summarization
     DEFAULT_GEMINI_GENERATION_MODEL = GEMINI_2_0_FLASH # Default for text generation
     DEFAULT_GEMINI_MODEL = GEMINI_2_0_FLASH # Default for both summarization and text gen
-    DEFAULT_QNA_MODEL = "distilbert-base-cased-distilled-squad"
     DEFAULT_ENTITY_EXTRACTION_MODEL = "en_core_web_sm" # Default spaCy model
     
     # Signals for summarization
@@ -63,23 +59,11 @@ class AIManager(QObject):
     text_generation_error_signal = pyqtSignal(tuple)
     text_generation_finished_signal = pyqtSignal()
     
-    # Signals for Q&A on enhanced content (keep as is for now)
-    qna_started_signal = pyqtSignal()
-    qna_result_signal = pyqtSignal(dict)
-    qna_error_signal = pyqtSignal(tuple)
-    qna_finished_signal = pyqtSignal()
-    
     # Signals for Entity Extraction
     entity_extraction_started_signal = pyqtSignal()
     entity_extraction_result_signal = pyqtSignal(list)  # Emits a list of entities
     entity_extraction_error_signal = pyqtSignal(tuple)
     entity_extraction_finished_signal = pyqtSignal()
-    
-    # Signals for Web Search for Enhancement
-    web_search_for_enhancement_started_signal = pyqtSignal()
-    web_search_for_enhancement_result_signal = pyqtSignal(dict) # entity: [results]
-    web_search_for_enhancement_error_signal = pyqtSignal(tuple)
-    web_search_for_enhancement_finished_signal = pyqtSignal()
     
     # General error signal for non-task-specific issues
     general_error_signal = pyqtSignal(str)
@@ -365,7 +349,7 @@ class AIManager(QObject):
         config = self._get_ai_backend_config()
         self._create_and_dispatch_worker("summarization", text, config)
 
-    def generate_text(self, prompt_text: str, max_new_tokens: int = 1024):
+    def generate_text(self, prompt_text: str, max_new_tokens: int = 2048):
         """
         Generate text based on a prompt using the configured AI backend.
         Renamed from generate_note_text for generality.
@@ -412,79 +396,6 @@ class AIManager(QObject):
             self.entity_extraction_error_signal.emit(error_tuple)
             self.entity_extraction_finished_signal.emit() # Ensure finished is emitted
 
-    def perform_qna_on_enhanced_content(self, original_note_text, extracted_entities, web_content_collated):
-        """Performs Q&A on provided content. TODO: Refactor for backend selection if needed."""
-        logger.info(f"AIManager: Performing Q&A on enhanced content. Entities: {len(extracted_entities)}")
-        self.qna_started_signal.emit()
-        try:
-            # For now, this directly uses the imported perform_question_answering (likely local Hugging Face)
-            # This would need backend selection logic similar to summarize/generate if Q&A is to be multi-backend
-            qna_model_id = self.settings_model.get("ai", "huggingface_qna_model_id", self.DEFAULT_QNA_MODEL)
-            
-            worker = QuestionAnsweringWorker(
-                perform_question_answering,
-                original_note_text=original_note_text,
-                extracted_entities=extracted_entities,
-                web_content_collated=web_content_collated,
-                qna_model_id=qna_model_id,
-                max_questions=self.settings_model.get_int("ai", "max_qna_questions", 3) # Example: make max_questions configurable
-            )
-            
-            # Connect signals to AIManager's internal handlers which then emit public signals
-            worker.signals.result.connect(lambda result: self.qna_result_signal.emit(result)) # Assuming result is dict
-            worker.signals.error.connect(lambda error_tuple: self.qna_error_signal.emit(error_tuple))
-            worker.signals.finished.connect(lambda: self.qna_finished_signal.emit())
-            # Consider adding started and progress signals for Q&A too if beneficial
-            
-            self.thread_pool.start(worker)
-        except Exception as e:
-            logger.error(f"Error starting Q&A worker: {e}", exc_info=True)
-            self.qna_error_signal.emit((type(e), str(e), traceback.format_exc()))
-            self.qna_finished_signal.emit() # Ensure finished is emitted even on setup error
-
-    def request_web_search_for_entities(self, original_note_text: str, entities: list):
-        """Initiates web searches for a list of entities using a worker."""
-        logger.info(f"AIManager: request_web_search_for_entities called for {len(entities)} entities.")
-        self.web_search_for_enhancement_started_signal.emit()
-
-        if not entities:
-            logger.warning("AIManager: No entities provided for web search.")
-            # Emit empty result or a specific error/info signal if needed
-            self.web_search_for_enhancement_result_signal.emit({})
-            self.web_search_for_enhancement_finished_signal.emit()
-            return
-
-        try:
-            # These will need to be imported from utils.threads and web.scraper respectively
-            from utils.threads import WebSearchForEntitiesWorker 
-            from web.scraper import perform_web_searches_for_entities
-
-            worker = WebSearchForEntitiesWorker(
-                perform_web_searches_for_entities, # The function to execute
-                entities=entities,
-                original_note_text=original_note_text # Pass if needed by search func
-            )
-            
-            worker.signals.result.connect(self.web_search_for_enhancement_result_signal.emit)
-            worker.signals.error.connect(self.web_search_for_enhancement_error_signal.emit)
-            worker.signals.finished.connect(self.web_search_for_enhancement_finished_signal.emit)
-
-            self.thread_pool.start(worker)
-            logger.debug(f"AIManager: WebSearchForEntitiesWorker started for {len(entities)} entities.")
-        except ImportError as e:
-            error_tuple = (type(e), e, traceback.format_exc())
-            logger.error(f"AIManager: Failed to import WebSearchForEntitiesWorker or perform_web_searches_for_entities: {e}", exc_info=True)
-            self.web_search_for_enhancement_error_signal.emit(error_tuple)
-            self.web_search_for_enhancement_finished_signal.emit()
-        except Exception as e:
-            error_tuple = (type(e), e, traceback.format_exc())
-            logger.error(f"AIManager: Failed to create or start WebSearchForEntitiesWorker: {e}", exc_info=True)
-            self.web_search_for_enhancement_error_signal.emit(error_tuple)
-            self.web_search_for_enhancement_finished_signal.emit() # Ensure finished is emitted
-
-    def perform_qna_on_text_and_entities(self, extracted_entities: list, web_content_collated: str):
-        logger.info(f"AIManager.perform_qna_on_text_and_entities called. Entities count: {len(extracted_entities)}, Web content length: {len(web_content_collated)}")    
-
     def extract_entities_with_spacy(self, text: str, model_id: str = 'en_core_web_sm', **kwargs):
         logger.debug(f"AIManager.extract_entities_with_spacy called with model: {model_id}")
         progress_callback = kwargs.get('progress_callback')
@@ -494,40 +405,6 @@ class AIManager(QObject):
             logger.error(f"Error calling extract_entities_spacy from AIManager: {e}")
             # Ensure an empty list is returned on error to match expected type
             return []
-
-    def trigger_qna_on_enhanced_content(self, extracted_entities: list, web_content_collated: str):
-        """Triggers Question Answering on collated web content using a worker."""
-        logger.info(f"AIManager.trigger_qna_on_enhanced_content called. Entities count: {len(extracted_entities)}, Web content length: {len(web_content_collated)}")    
-        self.qna_started_signal.emit()
-
-        qna_model_id = self.settings_model.get("ai", "huggingface_qna_model_id", self.DEFAULT_QNA_MODEL)
-        max_questions = self.settings_model.get_int("ai", "max_qna_questions", 3)
-
-        worker = QuestionAnsweringWorker(
-            perform_question_answering,
-            extracted_entities=extracted_entities,
-            web_content_collated=web_content_collated,
-            qna_model_id=qna_model_id,
-            max_questions=max_questions
-        )
-
-        worker.signals.result.connect(self._handle_worker_qna_result)
-        worker.signals.error.connect(self._handle_worker_qna_error)
-        worker.signals.finished.connect(self._handle_worker_qna_finished)
-
-        self.thread_pool.start(worker)
-
-    def _handle_worker_qna_result(self, result: dict):
-        logger.info("AIManager: Q&A worker result received, emitting result signal.")
-        self.qna_result_signal.emit(result)
-
-    def _handle_worker_qna_error(self, error_details: tuple):
-        logger.error(f"AIManager: Q&A worker error: {error_details}", exc_info=(error_details[0], error_details[1], error_details[2]))
-        self.qna_error_signal.emit(error_details)
-
-    def _handle_worker_qna_finished(self):
-        logger.info("AIManager: Q&A worker finished, emitting finished signal.")
-        self.qna_finished_signal.emit()
 
     def perform_qna_on_text_and_entities(self, extracted_entities: list, web_content_collated: str):
         logger.info(f"AIManager.perform_qna_on_text_and_entities called. Entities count: {len(extracted_entities)}, Web content length: {len(web_content_collated)}")    

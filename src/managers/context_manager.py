@@ -34,7 +34,6 @@ class ContextManager(QObject):
         # Initialize state variables
         self.models_loaded = False
         self.current_note_text = ""
-        self.current_web_results = []
         self.current_suggestions = {}
         
         # Initialize worker thread
@@ -76,17 +75,15 @@ class ContextManager(QObject):
         else:
             logger.error("Failed to load context analysis models")
     
-    def analyze_context(self, note_text, web_results):
+    def analyze_context(self, note_text):
         """
-        Analyze the context of the note and web results to generate suggestions.
+        Analyze the context of the note to generate suggestions.
         
         Args:
             note_text (str): The text of the note
-            web_results (list): List of web search results
         """
-        # Store the current note and web results
+        # Store the current note
         self.current_note_text = note_text
-        self.current_web_results = web_results
         
         # Check if models are loaded
         if not self.models_loaded:
@@ -97,7 +94,7 @@ class ContextManager(QObject):
         
         # Create a worker thread
         self.worker_thread = QThread()
-        worker = Worker(self._analyze_context_worker, note_text, web_results)
+        worker = Worker(self._analyze_context_worker, note_text)
         worker.moveToThread(self.worker_thread)
         
         # Connect signals
@@ -110,9 +107,9 @@ class ContextManager(QObject):
         self.worker_thread.started.connect(worker.run)
         self.worker_thread.start()
     
-    def _analyze_context_worker(self, note_text, web_results, progress_callback):
+    def _analyze_context_worker(self, note_text, progress_callback):
         """Worker function to analyze context and generate suggestions."""
-        return context_analyzer.generate_suggestions(note_text, web_results, progress_callback)
+        return context_analyzer.generate_suggestions(note_text, progress_callback)
     
     def _on_suggestions_ready(self, suggestions):
         """Handle suggestions ready signal."""

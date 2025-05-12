@@ -8,7 +8,7 @@ Contains the UI definition and event handlers.
 
 import os
 import logging
-import traceback # Added import
+import traceback 
 from PyQt5.QtWidgets import (
     QMainWindow, QTextEdit, QAction, QMessageBox, 
     QStatusBar, QVBoxLayout, QWidget, QSplitter, 
@@ -20,77 +20,79 @@ from PyQt5.QtGui import QTextCursor, QIcon
 
 # Import models
 from models.document_model import DocumentModel
-from models.settings_model import SettingsModel
 
 # Import controllers
 from controllers.file_controller import FileController
 from controllers.ai_controller import AIController
-from controllers.web_controller import WebController
 from controllers.context_controller import ContextController
 
 # Import view managers
 from managers.panel_manager import PanelManager
 from managers.progress_manager import ProgressManager
+from managers.enhancement_state_manager import EnhancementStateManager 
 
 # Import dialogs
-from views.dialogs.auto_enhance_dialog import AutoEnhanceDialog
 from views.dialogs.model_dialog import ModelSelectionDialog
 from views.dialogs.ai_services_dialog import AIServicesDialog
+from views.dialogs.enhancement_preview_dialog import EnhancementPreviewDialog 
 from views.panels.summary_panel import SummaryPanel
 
 # Import UI factory
 from .ui_factory import (
     create_file_menu, create_edit_menu, create_ai_tools_menu,
-    create_view_menu, create_web_menu, create_context_menu_actions,
+    create_view_menu, create_context_menu_actions,
     populate_toolbar
 )
 
 logger = logging.getLogger(__name__)
 
 # UI String Constants (example - add more as needed)
-EMPTY_NOTE_TITLE = "Empty Note"
+EMPTY_NOTE_TITLE = "Empty Note" 
 NO_TEXT_TO_SUMMARIZE_MESSAGE = "There is no text to summarize."
-NOTE_ENHANCEMENT_ERROR_TITLE = "Note Enhancement Error" # Moved/Ensured constant
-ENHANCEMENT_SEQUENCE_ERROR_TITLE = "Note Enhancement Error" # New constant for sequence error
+NOTE_ENHANCEMENT_ERROR_TITLE = "Note Enhancement Error" 
+ENHANCEMENT_SEQUENCE_ERROR_TITLE = "Note Enhancement Error" 
 NO_SUGGESTIONS_DIALOG_TITLE = "No Suggestions"
 NO_SUGGESTIONS_MESSAGE = "No enhancement suggestions were generated."
 SUMMARY_ERROR_DIALOG_TITLE = "Summarization Error"
 TEXT_GENERATION_ERROR_TITLE = "Text Generation Error"
-SEARCHING_WEB_MESSAGE = "Searching the web for relevant information..."
+NOTE_ENHANCEMENT_TITLE = "Enhance Note" 
 
 class MainWindow(QMainWindow):
     """Main application window for the Smart Contextual Notes Editor."""
-    APP_TITLE = "Smart Contextual Notes Editor"  # Class constant for the application title
+    APP_TITLE = "Smart Contextual Notes Editor"  
     MSG_NOT_ENOUGH_TEXT = "Not Enough Text"
-    MIN_WORDS_FOR_ENHANCEMENT = 5 # Minimum words in a note to trigger enhancement
+    MIN_WORDS_FOR_ENHANCEMENT = 5 
     
     def __init__(self, settings=None):
         """Initialize the main window and set up the UI."""
         super().__init__()
         
         # Initialize models
-        from utils.settings import Settings
+        from utils.settings import Settings 
         self.app_settings = settings if settings else Settings()
         self.document_model = DocumentModel()
         
         # Initialize controllers
         self.file_controller = FileController(self, self.app_settings, self.document_model)
         self.ai_controller = AIController(self, self.app_settings)
-        self.web_controller = WebController(self)
         self.context_controller = ContextController(self)
         
         # Initialize view managers
         self.panel_manager = PanelManager(self)
         self.progress_manager = ProgressManager(self)
-        
+        self.enhancement_state_manager = EnhancementStateManager(self) 
+
         # Initialize thread pool for background tasks
         self.thread_pool = QThreadPool()
         logger.info(f"Maximum thread count: {self.thread_pool.maxThreadCount()}")
 
-        self._setup_summary_dock_widget()
+        # Initialize Summary Panel components (will be set up later)
+        self.summary_dock_widget = None
+        self.summary_panel_view = None
+        self._setup_summary_dock_widget() 
 
         # Window properties
-        self.setWindowTitle(self.APP_TITLE) # Use class constant
+        self.setWindowTitle(self.APP_TITLE) 
         
         # Set up the UI components
         self._setup_ui()
@@ -101,11 +103,13 @@ class MainWindow(QMainWindow):
         # Status message
         self.statusBar().setObjectName("MainStatusBar")
         self.statusBar().showMessage("Ready")
-        self.progress_manager.setup_progress_bar(self.statusBar()) # Initialize progress bar
+        self.progress_manager.setup_progress_bar(self.statusBar()) 
 
         self.settings_dialog = None
         self.ai_services_dialog = None
-        self._enhancement_process_data = None # Initialize enhancement process data
+        # Initialize old state flags to prevent AttributeErrors, even if being phased out.
+        self._pending_enhancement_data = None
+        self._selection_based_enhancement_info = None
 
     def _connect_signals(self):
         """Connect signals from various components to their respective slots."""
@@ -134,37 +138,53 @@ class MainWindow(QMainWindow):
         # Model Preloading
         self.ai_controller.model_preload_result.connect(self._on_model_preload_result)
 
-        # Contextual Analysis & Enhancement Workflow
-        self.ai_controller.entities_extracted.connect(self._on_entities_extracted) # Corrected slot
-        self.ai_controller.entity_extraction_error.connect(self._on_note_enhancement_sequence_error)
-
-        self.ai_controller.web_search_for_enhancement_result.connect(self._on_web_search_for_enhancement_result)
-        self.ai_controller.web_search_for_enhancement_error.connect(self._on_note_enhancement_sequence_error)
-
-        # Q&A on Web Content (Corrected signal and slot names)
-        self.ai_controller.answer_extracted.connect(self._on_answer_extracted_for_enhancement) # Corrected signal and slot
-        self.ai_controller.answer_extraction_error.connect(self._on_note_enhancement_sequence_error) # Corrected signal
-
-        # Final Summary for Enhancement (Signals do not seem to exist in AIController, commenting out)
-        # self.ai_controller.final_summary_for_enhancement_result.connect(self._on_final_summary_for_enhancement_result)
-        # self.ai_controller.final_summary_for_enhancement_error.connect(self._on_note_enhancement_sequence_error)
-
-        # --- Web Controller Signals ---
-        self.web_controller.content_fetch_started.connect(self._on_content_fetch_started)
-        self.web_controller.content_fetch_result.connect(self._on_content_fetch_result)
-        self.web_controller.content_fetch_error.connect(self._on_content_fetch_error) # Ensure this slot exists
-
         # --- Text Edit Signals ---
-        if hasattr(self, 'text_edit') and self.text_edit: # Ensure text_edit is initialized
+        if hasattr(self, 'text_edit') and self.text_edit: 
             self.text_edit.textChanged.connect(self._on_text_changed)
             self.text_edit.cursorPositionChanged.connect(self._on_cursor_position_changed)
 
         # --- Other UI elements (e.g., from menus/toolbars if actions are dynamic) ---
-        # Example: self.action_open.triggered.connect(self.file_controller.open_file)
+        # Example: self.some_button.clicked.connect(self.on_some_button_clicked)
         # Connections for actions created in ui_factory will be set there or here if actions are attributes of MainWindow
+
 
         logger.info("MainWindow signals connected.")
 
+     # --- UI Setup and Helper Methods ---
+    def _setup_ui(self):
+        """Set up the main UI components.
+        """
+        logger.debug("Setting up UI")
+        # --- Central Widget --- 
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        layout = QVBoxLayout()
+        self.central_widget.setLayout(layout)
+        
+        # Text Editor
+        self.text_edit = QTextEdit()
+        self.text_edit.setObjectName("MainTextEdit")
+        layout.addWidget(self.text_edit)
+        
+        # Menu Bar
+        menubar = self.menuBar()
+        menubar.setObjectName("MainMenuBar")
+        create_file_menu(self, menubar)
+        create_edit_menu(self, menubar)
+        create_ai_tools_menu(self, menubar)
+        create_view_menu(self, menubar)
+        # create_web_menu(self, menubar) 
+        create_context_menu_actions(self, menubar)
+        
+        # Toolbar
+        toolbar = QToolBar("Main Toolbar")
+        toolbar.setObjectName("MainToolBar")
+        self.addToolBar(toolbar)
+        populate_toolbar(self, toolbar)
+
+        # Status Bar (already created by QMainWindow by default)
+        self.statusBar().setObjectName("MainStatusBar")
+    
     #
     # AI Summarization Methods
     #
@@ -263,448 +283,7 @@ class MainWindow(QMainWindow):
         if not cursor.atStart() and not cursor.atEnd():
             cursor.insertText("\n\n")
         cursor.insertText(f"## Summary\n\n{summary}\n\n")
-        # QMessageBox.information(self, "Summary Inserted", "The summary has been inserted at the cursor.") # Removed to avoid double pop-up if panel is also used
-
-    def on_search_web(self):
-        """Search the web for information related to the current note."""
-        # Get the text to search for
-        text = self.text_edit.toPlainText()
-        
-        # Check if there's enough text to search
-        if not text or len(text.split()) < 10:
-            QMessageBox.warning(
-                self,
-                self.MSG_NOT_ENOUGH_TEXT,
-                "Please enter more text to search for relevant information (at least 10 words)."
-            )
-            return
-        
-        # Generate a search query from the text
-        query = self.web_controller.generate_search_query(text)
-        
-        # Perform the search
-        self._perform_web_search(query)
-    
-    def on_search_selected(self):
-        """Search the web for the selected text."""
-        # Get the selected text
-        cursor = self.text_edit.textCursor()
-        selected_text = cursor.selectedText()
-        
-        # Check if there's any selected text
-        if not selected_text:
-            QMessageBox.warning(
-                self,
-                "No Text Selected",
-                "Please select some text to search for."
-            )
-            return
-        
-        # Perform the search with the selected text as the query
-        self._perform_web_search(selected_text)
-    
-    def _perform_web_search(self, query):
-        """Perform a web search with the given query."""
-        try:
-            # Use the web controller to perform the search
-            self.web_controller.perform_search(query)
-            
-        except ImportError as e:
-            self.progress_manager.on_operation_error(str(e))
-            QMessageBox.critical(
-                self,
-                ERROR_DIALOG_TITLE,
-                f"The required libraries for web search are not installed: {str(e)}\n\n"
-                "Please install them using: pip install requests beautifulsoup4"
-            )
-        except Exception as e:
-            self.progress_manager.on_operation_error(str(e))
-            QMessageBox.critical(
-                self,
-                ERROR_DIALOG_TITLE,
-                f"An error occurred while preparing for web search: {str(e)}"
-            )
-    
-    def _on_content_fetch_started(self, url: str):
-        """Handle the content fetch started signal."""
-        logger.info(f"Content fetch started for url: {url}") # Log the URL
-        self.progress_manager.start_operation_with_message(f"Fetching content from: {url}...")
-    
-    def _on_content_fetch_result(self, result_data: dict):
-        """Handle the content fetch result signal."""
-        url = result_data.get('url')
-        content = result_data.get('content')
-        success = result_data.get('success', False)
-        error_message = result_data.get('error')
-
-        logger.debug(f"MainWindow: Content fetch result for {url}, Success: {success}")
-        if success:
-            self.statusBar().showMessage(f"Content fetched successfully from {url}", 3000)
-            if hasattr(self, 'web_content_dialog') and self.web_content_dialog:
-                self.web_content_dialog.set_content(url, content)
-                if not self.web_content_dialog.isVisible():
-                    self.web_content_dialog.show()
-            else:
-                logger.info(f"Web content dialog not available. Content from {url} not displayed directly.")
-            if self._enhancement_process_data and \
-               self._enhancement_process_data.get('current_step') == 'fetching_web_content_for_qna' and \
-               url in self._enhancement_process_data.get('urls_to_fetch', []):
-                logger.info(f"Content for {url} fetched for enhancement Q&A.")
-        else:
-            actual_error_message = error_message if error_message else "Unknown error during content fetch."
-            self.statusBar().showMessage(f"Failed to fetch content from {url}: {actual_error_message}", 5000)
-            QMessageBox.warning(self, "Web Content Error", f"Could not fetch content from {url}.\nError: {actual_error_message}")
-            logger.error(f"Failed to fetch content from {url}: {actual_error_message}")
-
-    def _on_content_fetch_error(self, error_data: dict):
-        """Handle errors during web content fetching."""
-        url = error_data.get('url', 'Unknown URL')
-        error_message = error_data.get('error', 'Unknown error')
-
-        logger.error(f"MainWindow: Content fetch error for {url}: {error_message}")
-        self.statusBar().showMessage(f"Error fetching {url}: {error_message}", 5000)
-        QMessageBox.critical(
-            self,
-            "Web Fetch Error",
-            f"Failed to retrieve content from the URL: {url}\nReason: {error_message}"
-        )
-        if self._enhancement_process_data and \
-           self._enhancement_process_data.get('current_step') == 'fetching_web_content_for_qna' and \
-           url in self._enhancement_process_data.get('urls_to_fetch', []):
-            logger.warning(f"Content fetch error for {url} during enhancement. AIController should handle its own error signal.")
-
-    def _on_web_search_started(self):
-        """Handle the web search started signal."""
-        logger.info("Web search started.")
-        self.progress_manager.start_operation_with_message("Searching the web...")
-        # self.statusBar().showMessage("Searching the web...") # Covered by start_operation_with_message
-
-    def fetch_web_content(self, url):
-        """Fetch content from a URL."""
-        try:
-            # Use the web controller to fetch the content
-            self.web_controller.fetch_content(url)
-            
-        except Exception as e:
-            self.progress_manager.on_operation_error(str(e))
-            QMessageBox.critical(
-                self,
-                ERROR_DIALOG_TITLE,
-                f"An error occurred while preparing to fetch content: {str(e)}"
-            )
-    
-    def insert_web_link(self, title, url):
-        """Insert a link to a web page at the cursor position."""
-        # Get the current cursor
-        cursor = self.text_edit.textCursor()
-        
-        # Insert a newline if we're not at the beginning of a line
-        if cursor.columnNumber() > 0:
-            cursor.insertText("\n\n")
-        
-        # Insert the link in Markdown format
-        cursor.insertText(f"[{title}]({url})\n")
-        
-        self.statusBar().showMessage("Link inserted at cursor position")
-    
-    #
-    # Context Analysis Methods
-    #
-    
-    def on_analyze_context(self):
-        """Analyze the current note and web content to generate contextual suggestions."""
-        # Get the current note text
-        note_text = self.text_edit.toPlainText()
-        
-        if not note_text.strip():
-            QMessageBox.warning(
-                self,
-                EMPTY_NOTE_TITLE,
-                "Please enter some text in the note before analyzing context."
-            )
-            return
-        
-        # Check if we have web results
-        web_results = self.web_controller.get_last_search_results()
-        if not web_results:
-            response = QMessageBox.question(
-                self,
-                "No Web Results",
-                "No web search results found. Would you like to search the web first?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
-            )
-            
-            if response == QMessageBox.Yes:
-                self.on_search_web()
-                return
-        
-        # Analyze the context
-        self.context_controller.analyze_context(note_text, web_results)
-    
-    def on_show_suggestions(self):
-        """Show the suggestions panel with the latest suggestions."""
-        # Get the current suggestions
-        suggestions = self.context_controller.get_current_suggestions()
-        
-        if not suggestions:
-            QMessageBox.information(
-                self,
-                "No Suggestions",
-                "No contextual suggestions available. Please analyze the context first."
-            )
-            return
-        
-        # Show the suggestions panel
-        self.panel_manager.show_suggestions_panel(suggestions)
-    
-    def insert_suggestion_text(self, text):
-        """Insert suggestion text at the cursor position."""
-        # Get the current cursor
-        cursor = self.text_edit.textCursor()
-        
-        # Insert a newline if we're not at the beginning of a line
-        if cursor.columnNumber() > 0:
-            cursor.insertText("\n\n")
-        
-        # Insert the suggestion text
-        cursor.insertText(text)
-        
-        self.statusBar().showMessage("Suggestion inserted at cursor position")
-    
-    def refresh_suggestions(self):
-        """Refresh the contextual suggestions."""
-        self.on_analyze_context()
-    
-    #
-    # Auto-Enhancement Methods
-    #
-    
-    def on_auto_enhance(self):
-        """Open the auto-enhance dialog and start the enhancement process."""
-        # Get the current note text
-        note_text = self.text_edit.toPlainText()
-        
-        if not note_text.strip():
-            QMessageBox.warning(
-                self,
-                EMPTY_NOTE_TITLE,
-                "Please enter some text in the note before enhancing."
-            )
-            return
-        
-        # Create and show the auto-enhance dialog
-        dialog = AutoEnhanceDialog(self)
-        dialog.enhancement_requested.connect(self._start_auto_enhancement)
-        dialog.exec_()
-    
-    def _start_auto_enhancement(self, options):
-        """Start the auto-enhancement process with the given options."""
-        # Get the current note text
-        note_text = self.text_edit.toPlainText()
-        
-        # Get the dialog that sent the signal
-        dialog = self.sender()
-        
-        # Update dialog status
-        dialog.set_progress(10, "Analyzing note content...")
-        
-        # Step 1: Search the web if requested
-        if options['search_web']:
-            # Check if we already have search results
-            web_results = self.web_controller.get_last_search_results()
-            if not web_results or not web_results.get('links'): # Check if there are actual links
-                # Generate a more intelligent search query using the AI-powered method
-                logger.info("No existing web results or results are empty, generating new search query for enhancement.")
-                query = self.web_controller.generate_search_query(note_text)
-                logger.info(f"Generated search query for auto-enhancement: '{query[:30]}...'")
-                
-                dialog.set_progress(20, f"Searching the web for: '{query[:30]}...' ")
-                
-                # Connect a one-time handler for search results
-                self.web_controller.web_search_result.connect(
-                    lambda results: self._continue_enhancement_after_search(results, options, dialog)
-                )
-                
-                # Start the search
-                self.web_controller.perform_search(query)
-            else:
-                # Use existing search results
-                self._continue_enhancement_after_search(
-                    web_results, 
-                    options, 
-                    dialog
-                )
-        else:
-            # Skip web search
-            self._analyze_and_enhance([], options, dialog)
-    
-    def _continue_enhancement_after_search(self, search_results, options, dialog):
-        """Continue the enhancement process after web search is complete."""
-        # Disconnect the one-time handler
-        try:
-            self.web_controller.web_search_result.disconnect()
-        except TypeError:
-            # Signal was not connected
-            pass
-        
-        dialog.set_progress(40, "Analyzing web content...")
-        
-        # Proceed with analysis and enhancement
-        self._analyze_and_enhance(search_results, options, dialog)
-    
-    def _analyze_and_enhance(self, web_results, options, dialog):
-        """Analyze the context and enhance the note."""
-        # Get the current note text
-        note_text = self.text_edit.toPlainText()
-        
-        dialog.set_progress(50, "Generating contextual suggestions...")
-        
-        # Connect a one-time handler for suggestions
-        self.context_controller.suggestions_ready.connect(
-            lambda suggestions: self._apply_enhancements(suggestions, options, dialog)
-        )
-        
-        # Start the analysis
-        self.context_controller.analyze_context(note_text, web_results)
-    
-    def _apply_enhancements(self, suggestions, options, dialog):
-        """Apply the enhancements to the note."""
-        # Disconnect the one-time handler
-        try:
-            self.context_controller.suggestions_ready.disconnect()
-        except TypeError:
-            # Signal was not connected
-            pass
-        
-        dialog.set_progress(80, "Applying enhancements to your note...")
-        
-        # Get the content suggestions
-        content_suggestions = suggestions.get('content_suggestions', [])
-        missing_info = suggestions.get('missing_information', [])
-        
-        if not content_suggestions and not missing_info:
-            dialog.enhancement_failed("No relevant suggestions found.")
-            return
-        
-        # Generate the enhancement text
-        enhancement_text = self._generate_enhancement_text(content_suggestions, missing_info, options)
-        
-        # Insert the enhancement text
-        self._insert_enhancement_text(enhancement_text, options)
-        
-        # Mark the document as having unsaved changes
-        self.document_model.set_content(self.text_edit.toPlainText())
-        
-        # Complete the enhancement process
-        dialog.set_progress(100, "Enhancement complete!")
-        dialog.enhancement_complete()
-        
-        # Show a status message
-        self.statusBar().showMessage("Notes enhanced with AI-generated content")
-    
-    def _generate_enhancement_text(self, content_suggestions, missing_info, options):
-        """Generate the enhancement text from suggestions."""
-        # Prepare the text to insert
-        enhancement_text = "\n\n" + "="*50 + "\n"  # Separator
-        enhancement_text += "AI-ENHANCED CONTENT\n\n"
-        
-        # Add content suggestions
-        if content_suggestions:
-            enhancement_text += self._format_content_suggestions(content_suggestions, options)
-        
-        # Add missing information suggestions
-        if missing_info:
-            enhancement_text += self._format_missing_info(missing_info)
-        
-        return enhancement_text
-    
-    def _format_content_suggestions(self, content_suggestions, options):
-        """Format the content suggestions into text."""
-        result = ""
-        
-        # Sort by overall score
-        content_suggestions.sort(key=lambda x: x.get('overall_score', 0), reverse=True)
-        
-        # Take the top N suggestions based on user preference
-        top_suggestions = content_suggestions[:options['num_suggestions']]
-        
-        for suggestion in top_suggestions:
-            result += self._format_single_suggestion(suggestion)
-        
-        return result
-    
-    def _format_single_suggestion(self, suggestion):
-        """Format a single suggestion into text."""
-        result = ""
-        title = suggestion.get('title', 'Untitled')
-        url = suggestion.get('url', '')
-        sentences = suggestion.get('sentences', [])
-        
-        result += f"## {title}\n"
-        if url:
-            result += f"Source: {url}\n\n"
-        
-        if sentences:
-            # Sort by similarity
-            sentences.sort(key=lambda x: x.get('similarity', 0), reverse=True)
-            
-            # Add the sentences
-            for sentence_data in sentences:
-                sentence = sentence_data.get('sentence', '')
-                if sentence:
-                    result += f"- {sentence}\n"
-            
-            result += "\n"
-        
-        return result
-    
-    def _format_missing_info(self, missing_info):
-        """Format the missing information into text."""
-        result = "## Suggested Additions\n"
-        for info in missing_info:
-            result += f"- {info}\n"
-        result += "\n"
-        
-        return result
-    
-    def _insert_enhancement_text(self, enhancement_text, options):
-        """Insert the enhancement text into the document based on the selected style."""
-        cursor = self.text_edit.textCursor()
-        
-        if options['insertion_style'] == 0:  # Append to end
-            cursor.movePosition(QTextCursor.End)
-            cursor.insertText(enhancement_text)
-        
-        elif options['insertion_style'] == 1:  # Insert at cursor
-            cursor.insertText(enhancement_text)
-        
-        elif options['insertion_style'] == 2:  # Create new section
-            cursor.movePosition(QTextCursor.End)
-            cursor.insertText("\n\n## Related Information\n")
-            cursor.insertText(enhancement_text)
-    
-    def configure_ai_services(self):
-        """Configure AI services dialog."""
-        logger.info("Configure AI Services action triggered.")
-        dialog = AIServicesDialog(self.app_settings, self)
-        if dialog.exec_() == QDialog.Accepted:
-            # Settings are saved within the dialog's accept() method
-            logger.info("AI Services configured and saved.")
-
-    def closeEvent(self, event):
-        """Handle the window close event."""
-        if self.file_controller._check_unsaved_changes():
-            # Save window state before closing
-            self.app_settings.set("window", "width", self.width())
-            self.app_settings.set("window", "height", self.height())
-            self.app_settings.set("window", "x", self.x())
-            self.app_settings.set("window", "y", self.y())
-            self.app_settings.save_settings()
-            
-            event.accept()
-        else:
-            event.ignore()
+        # QMessageBox.information(self, "Summary Inserted", "The summary has been inserted at the cursor.") 
 
     def on_generate_note_text(self):
         """Generate new note content based on a prompt using AI."""
@@ -728,80 +307,228 @@ class MainWindow(QMainWindow):
         """Handle the start of AI text generation."""
         logger.info("AI Text Generation Started.")
         self.progress_manager.start_operation_with_message("Generating text...")
-        # self.statusBar().showMessage("AI is generating text...") # Covered by start_operation_with_message
+        # self.statusBar().showMessage("AI is generating text...") 
 
     def _on_text_generation_progress(self, percentage: int):
         """Handle AI text generation progress updates."""
-        pass # Text generation APIs usually don't provide granular progress like summarization models
+        pass 
+
+    # In class MainWindow:
 
     def _on_text_generation_result(self, generated_text_result):
         """Handle the successful result of AI text generation."""
-        if not generated_text_result: # Should ideally be handled by error signal if empty is error
+        logger.info("Received AI text generation result.") # ADDED LOG
+        processed_text = self._validate_and_process_ai_result(generated_text_result)
+
+        if processed_text is None:
+            # If an enhancement was in progress, mark it as failed
+            if self.enhancement_state_manager.is_active() and self.enhancement_state_manager.get_state() == 'awaiting_enhancement':
+                error_msg = "AI returned empty or invalid text."
+                self.enhancement_state_manager.enhancement_error(error_msg)
+                # No need for QMessageBox here, _validate_and_process_ai_result shows one
+            self.progress_manager.hide_progress()
+            return
+
+        logger.info(f"AI Text Generation Successful. Received {len(processed_text)} characters.")
+        self.progress_manager.on_progress_update(95)
+        self.progress_manager.show_message("AI text processing complete.")
+
+        # ---- Check if it's part of an enhancement workflow ----
+        if self.enhancement_state_manager.is_active() and self.enhancement_state_manager.get_state() == 'awaiting_enhancement':
+            logger.info("Handling result as part of Note Enhancement workflow.")
+            self.enhancement_state_manager.enhancement_generated(processed_text)
+            logger.debug("State set to 'enhancement_received'. Preparing to show preview dialog...") # ADDED LOG
+            self._show_enhancement_preview_dialog() # Show the preview dialog
+        else:
+            # It's a general text generation request (e.g., from prompt)
+            logger.debug("Handling result as general text generation.") # ADDED LOG
+            self._handle_general_text_generation_result(processed_text) # Keep this helper
+
+        self.progress_manager.on_progress_update(100)
+        # Status message handled within specific handlers or dialog actions
+    def _validate_and_process_ai_result(self, generated_text_result):
+        """Validate the AI result, process it into a string, handle errors/empty cases.
+
+        Returns:
+            str: The validated and processed text string.
+            None: If the result is invalid, empty, or processing failed.
+        """
+        if not generated_text_result:
             logger.warning("AI text generation returned an empty result.")
             self.progress_manager.on_operation_error("AI returned empty text.")
             QMessageBox.warning(self, "AI Result Empty", "The AI returned an empty result. No changes were made.")
+            # Clear pending enhancement flag if error occurred during generation resulting in empty text
+            if self._pending_enhancement_data is not None:
+                self._pending_enhancement_data = None
+                logger.debug("Cleared pending enhancement data due to empty result.")
+            return None
+
+        processed_text = self._convert_ai_result_to_string(generated_text_result)
+        if processed_text is None:
+            # Error occurred during conversion, already logged and handled
+            # Clear enhancement flag if conversion failed
+            if self._pending_enhancement_data is not None:
+                self._pending_enhancement_data = None
+                logger.debug("Cleared pending enhancement data due to result conversion error.")
+            return None
+
+        # Check if processed text is just whitespace after potential conversion
+        if not processed_text.strip():
+            logger.warning("AI text generation result is empty or whitespace after processing.")
+            self.progress_manager.on_operation_error("AI returned empty/whitespace text.")
+            QMessageBox.warning(self, "AI Result Empty", "The AI result was empty or contained only whitespace. No changes were made.")
+            if self._pending_enhancement_data is not None:
+                self._pending_enhancement_data = None
+                logger.debug("Cleared pending enhancement data due to empty/whitespace result.")
+            return None
+
+        return processed_text
+
+    def _convert_ai_result_to_string(self, result):
+        """Attempts to convert various AI result types to a plain string.
+
+        Handles strings, objects with .text attribute, and dicts with 'text' key.
+        Logs warnings/errors if conversion is ambiguous or fails.
+
+        Returns:
+            str: The processed text string.
+            None: If conversion fails.
+        """
+        if isinstance(result, str):
+            return result
+        elif hasattr(result, 'text') and isinstance(getattr(result, 'text', None), str):
+            logger.debug("AI result has .text attribute, using it.")
+            return result.text
+        elif isinstance(result, dict) and 'text' in result and isinstance(result['text'], str):
+            logger.debug("AI result is dict with 'text' key, using it.")
+            return result['text']
+        else:
+            # Attempt a fallback conversion, logging a warning
+            try:
+                processed_text = str(result)
+                logger.warning(f"AI result type unexpected ({type(result).__name__}). Converted to string: {processed_text[:100]}...")
+                return processed_text
+            except Exception as e:
+                logger.error(f"Failed to convert AI result of type {type(result).__name__} to string: {e}")
+                self.progress_manager.on_operation_error(f"Error processing AI result type: {e}")
+                QMessageBox.critical(self, "AI Result Error", f"Could not process the AI result type: {type(result).__name__}")
+                return None
+
+    def _handle_enhancement_result(self, generated_text: str):
+        """Handles the result when it's from the 'Enhance Note' feature.
+           Shows the preview dialog for the *first* time or after an error.
+        """
+        logger.info("Handling result as Note Enhancement (showing initial preview dialog).")
+        if self._pending_enhancement_data is None:
+            logger.error("_handle_enhancement_result called but _pending_enhancement_data is None. Should not happen here.")
+            self.statusBar().showMessage("Enhancement error: State mismatch (initial preview).", 5000)
+            self._selection_based_enhancement_info = None 
+            self._current_enhancement_dialog = None 
             return
 
-        # Ensure generated_text_result is a string
-        if not isinstance(generated_text_result, str):
-            try:
-                # If it's a more complex object (e.g. from Gemini API response), try to extract text part
-                # This is a guess; adapt if AI result structure is different
-                if hasattr(generated_text_result, 'text'):
-                    generated_text = generated_text_result.text
-                elif isinstance(generated_text_result, dict) and 'text' in generated_text_result:
-                    generated_text = generated_text_result['text']
-                else:
-                    # Fallback if structure is unknown, convert to string
-                    generated_text = str(generated_text_result)
-                    logger.warning(f"AI result was not a string, converted to: {generated_text[:100]}...")
-            except Exception as e:
-                logger.error(f"Error processing AI result structure: {e}")
-                self.progress_manager.on_operation_error(f"Error processing AI result: {e}")
-                QMessageBox.critical(self, "AI Result Error", f"Could not process the AI result: {e}")
-                return
-        else:
-            generated_text = generated_text_result
+        # Retrieve the full original text for the diff preview
+        original_full_text = self._pending_enhancement_data.get('original_text', '')
+        was_selection_based = self._selection_based_enhancement_info is not None
+        selection_info = self._selection_based_enhancement_info
 
-        logger.info(f"AI Text Generation Successful. Received {len(generated_text)} characters.")
-        self.progress_manager.on_progress_update(95) # Set progress to 95%
-        self.progress_manager.show_message("AI text processing complete.") # Show message
+        # Clear pending *data* flag *before* showing dialog
+        # Keep selection info until dialog is closed/accepted
+        self._pending_enhancement_data = None 
+        logger.debug("Cleared pending enhancement data before showing dialog.")
 
-        current_text = self.text_edit.toPlainText()
-        new_text = current_text + "\n\n--- Enhanced Content ---\n" + generated_text
-        self.text_edit.setPlainText(new_text)
-        self.file_modified = True
-        self.update_title()
+        # --- Create and show the preview dialog --- 
+        dialog = EnhancementPreviewDialog(generated_text, original_full_text, self)
+        self._current_enhancement_dialog = dialog 
+        # Connect the regeneration signal
+        dialog.regenerate_requested.connect(self._on_enhancement_regenerate_requested)
+        logger.debug("Connected regenerate_requested signal.")
+
+        result = dialog.exec_()
+        logger.info(f"EnhancementPreviewDialog closed with result: {result}")
+
+        # --- Handle dialog result --- 
+        # Dialog is closed, clear the reference *regardless* of result
+        current_dialog = self._current_enhancement_dialog 
+        self._current_enhancement_dialog = None
+        logger.debug("Cleared enhancement dialog reference after dialog closed.")
+
+        if result == QDialog.Accepted:
+            logger.info("Enhancement accepted by user.")
+            accepted_text = current_dialog.get_enhanced_text() 
+            if was_selection_based and selection_info:
+                logger.info("Applying enhancement to selection.")
+                cursor = self.text_edit.textCursor()
+                cursor.beginEditBlock() 
+                cursor.setPosition(selection_info['start'])
+                cursor.setPosition(selection_info['end'], QTextCursor.KeepAnchor)
+                cursor.insertText(accepted_text) 
+                cursor.endEditBlock()
+                # Update model content after modification
+                self.document_model.set_content(self.text_edit.toPlainText())
+                self.statusBar().showMessage("Selected text enhanced successfully!", 5000)
+            else:
+                logger.info("Applying enhancement to full note.")
+                self.text_edit.setPlainText(accepted_text) 
+                # Ensure DocumentModel is updated correctly and signals modification
+                self.document_model.set_content(accepted_text) 
+                self.statusBar().showMessage("Note enhanced successfully!", 5000)
+            logger.info("Note content updated with enhanced text.")
+        else: 
+            logger.info("Enhancement rejected by user.")
+            self.statusBar().showMessage("Enhancement discarded.", 3000)
+            # No changes needed to the editor text
         
-        self.progress_manager.on_progress_update(100) # Set progress to 100%
-        self.statusBar().showMessage("Note enhanced successfully!", 5000)
-        logger.info("Note enhanced and UI updated.")
+        # Clear selection info *after* potential use
+        self._selection_based_enhancement_info = None
+        logger.debug("Cleared selection info after dialog closed.")
 
+    def _handle_general_text_generation_result(self, generated_text: str):
+        """Handles the result for general text generation (e.g., from prompt)."""
+        logger.info("Handling result as General Text Generation (appending).")
+        current_text = self.text_edit.toPlainText()
+        # Use a consistent separator
+        new_text = current_text + "\n\n--- Generated Content ---\n" + generated_text
+        self.text_edit.setPlainText(new_text)
+        # Update model and title for generated content as well
+        self.document_model.set_content(new_text)
+        self.statusBar().showMessage("Generated text added to note.", 5000)
+        logger.info("Generated text appended to note.")
+
+    # --- Placeholder AI Text Generation Signal Handlers ---
     def _on_text_generation_error(self, error_details):
         err_type, err_msg, _ = error_details
         logger.error(f"AI Text Generation Error: {err_type}: {err_msg}")
+
+        # Check if this error occurred during an enhancement
+        if self.enhancement_state_manager.is_active() and self.enhancement_state_manager.get_state() == 'awaiting_enhancement':
+            logger.error("Text generation error occurred during enhancement.")
+            self.enhancement_state_manager.enhancement_error(f"{err_type}: {err_msg}")
+            # Optionally close any open preview dialog? Handled by state reset usually.
+            # self.enhancement_state_manager.reset() # Reset state on error
+
         self.progress_manager.hide_progress()
         self.statusBar().showMessage("Text generation failed.", 5000)
         QMessageBox.critical(self, TEXT_GENERATION_ERROR_TITLE, f"{err_type}: {err_msg}")
+        # Reset enhancement state manager if an error occurred during its active phase
+        if self.enhancement_state_manager.get_state() == 'error':
+            self.enhancement_state_manager.reset()
 
     def _on_text_generation_finished(self):
         """Handle the end of AI text generation (success or failure)."""
         logger.info("AI Text Generation Finished.")
-        self.progress_manager.hide_progress() # Ensure progress is hidden
+        self.progress_manager.hide_progress() 
         # Status message is usually set by result or error handlers
-
-    # --- End Placeholder AI Text Generation Signal Handlers ---
 
     # --- AI Summarization Signal Handlers ---
     def _on_summarization_started(self):
         """Handle the start of AI text summarization."""
         logger.info("AI Summarization Started.")
         self.progress_manager.start_operation_with_message("Summarizing text...")
-        # self.statusBar().showMessage("AI is summarizing text...") # Covered by start_operation_with_message
+        # self.statusBar().showMessage("AI is summarizing text...") 
 
     def _on_summarization_progress(self, percentage: int):
         """Handle AI text summarization progress updates."""
-        pass # API-based summarization might not offer granular progress
+        pass 
 
     def _on_summarization_result(self, summary_text: str):
         """Handle the result of AI text summarization."""
@@ -811,15 +538,26 @@ class MainWindow(QMainWindow):
         if not summary_text.strip():
             self.statusBar().showMessage("Summarization complete: Empty summary.", 5000)
             QMessageBox.information(self, "Summarization Complete", "The generated summary is empty or contains only whitespace.")
+            # Ensure panel is cleared even if empty
+            if self.summary_panel_view:
+                self.summary_panel_view.set_summary("")
             return
 
         self.statusBar().showMessage("Summarization complete.", 5000)
+        # Update the summary panel view
         if self.summary_panel_view:
             self.summary_panel_view.set_summary(summary_text)
-        
+            logger.info("Summary panel updated.")
+        else:
+            logger.warning("Summary panel view not found when trying to set summary.")
+
+        # Show and raise the dock widget
         if self.summary_dock_widget:
             self.summary_dock_widget.setVisible(True)
             self.summary_dock_widget.raise_()
+            logger.info("Summary dock widget shown and raised.")
+        else:
+            logger.warning("Summary dock widget not found when trying to show/raise.")
 
     def _on_summarization_error(self, error_details: tuple):
         error_type, error_message, tb_str = error_details
@@ -827,7 +565,7 @@ class MainWindow(QMainWindow):
         if tb_str:
             logger.debug(f"Traceback:\n{tb_str}")
 
-        if hasattr(self, 'progress_manager'): # Check if progress_manager exists
+        if hasattr(self, 'progress_manager'): 
             self.progress_manager.hide_progress()
         self.statusBar().showMessage("Summarization failed.", 5000)
 
@@ -837,325 +575,15 @@ class MainWindow(QMainWindow):
     def _on_summarization_finished(self):
         """Handle the end of AI text summarization (success or failure)."""
         logger.info("AI Summarization Finished.")
-        self.progress_manager.hide_progress() # Ensure progress is hidden
+        self.progress_manager.hide_progress() 
         # Status message is usually set by result or error handlers
     # --- End AI Summarization Signal Handlers ---
-
-    # --- New SummaryPanel Integration Methods ---
-    def _setup_summary_dock_widget(self):
-        """Sets up the QDockWidget that will host the SummaryPanel."""
-        self.summary_dock_widget = QDockWidget("Summary", self)
-        self.summary_dock_widget.setObjectName("MainSummaryDockWidget")
-        self.summary_panel_view = SummaryPanel(parent=self)
-        self.summary_dock_widget.setWidget(self.summary_panel_view)
-        self.addDockWidget(Qt.RightDockWidgetArea, self.summary_dock_widget)
-        self.summary_dock_widget.setFeatures(QDockWidget.DockWidgetClosable | QDockWidget.DockWidgetFloatable)
-        self.summary_dock_widget.setVisible(False)
-
-    def insert_summary_at_top(self, summary: str):
-        """Insert the provided summary at the top of the document."""
-        if not summary:
-            return
-        cursor = self.text_edit.textCursor()
-        # Add a bit of spacing if inserting into existing text
-        if not cursor.atStart() and not cursor.atEnd():
-             prefix = f"## Summary\n\n{summary}\n\n"
-        else:
-            prefix = f"## Summary\n\n{summary}\n"
-            
-        cursor.insertText(prefix)
-        self.statusBar().showMessage("Summary inserted at the top.", 3000)
-
-    def insert_summary_at_cursor(self, summary: str):
-        """Insert the provided summary at the cursor position."""
-        if not summary:
-            return
-        cursor = self.text_edit.textCursor()
-        # Add a bit of spacing if inserting into existing text
-        if not cursor.atStart() and not cursor.atEnd():
-            cursor.insertText("\n\n")
-        cursor.insertText(f"## Summary\n\n{summary}\n\n")
-        # QMessageBox.information(self, "Summary Inserted", "The summary has been inserted at the cursor.") # Removed to avoid double pop-up if panel is also used
-
-    def insert_summary_at_bottom(self, summary: str):
-        """Insert the provided summary at the bottom of the document."""
-        if not summary:
-            return
-        cursor = self.text_edit.textCursor()
-        cursor.movePosition(QTextCursor.End)
-        
-        suffix = ""
-        if self.text_edit.toPlainText() and not self.text_edit.toPlainText().endswith( ("\n", "\r") ):
-            suffix = f"\n\n## Summary\n\n{summary}\n"
-        else:
-            suffix = f"## Summary\n\n{summary}\n"
-
-        cursor.insertText(suffix)
-        self.statusBar().showMessage("Summary inserted at the bottom.", 3000)
-
-    def close_summary_panel(self):
-        """Close (hide) the summary dock widget."""
-        if self.summary_dock_widget:
-            self.summary_dock_widget.setVisible(False)
-
-    def _on_summary_dock_visibility_changed(self, visible: bool):
-        """Handle summary_dock_widget visibility changes."""
-        if not visible:
-            if self.summary_panel_view:
-                self.summary_panel_view.clear_summary()
-            logger.debug("MainSummaryDockWidget hidden, summary cleared from SummaryPanel.")
-
-    # --- Entity Extraction Signal Handlers ---
-    def _on_entity_extraction_started(self):
-        """Handle the start of entity extraction."""
-        logger.info("Entity Extraction Started.")
-        self.progress_manager.start_operation_with_message("Extracting entities...")
-
-    def _on_entities_extracted(self, entities):
-        """Handle the result of entity extraction."""
-        logger.info(f"Entities Extracted: {entities}")
-        self.progress_manager.on_progress_update(20)
-        self.progress_manager.show_message("Entities extracted. Preparing web search...")
-        
-        if not self._enhancement_process_data or self._enhancement_process_data.get('current_step') != 'entity_extraction':
-            logger.error("Received entities but enhancement process not in correct state or not active.")
-            self.progress_manager.hide_progress()
-            self._enhancement_process_data = None # Reset
-            return
-
-        self._enhancement_process_data['entities'] = entities
-
-        if not entities:
-            self.statusBar().showMessage("No key entities found. Skipping web search.", 5000)
-            logger.info("No entities found. Proceeding to next step (e.g., summarization of original note or finish).")
-            # For now, let's assume we try to summarize the original note if no entities found.
-            # This would involve calling a summarization step. Or, just finish.
-            # Let's make a placeholder call to the ai_controller for summarizing the original text as the next step.
-            # Or, directly trigger the final summary part. Let's simplify and assume if no entities, we are done with this path for now.
-            self._on_note_enhancement_sequence_finished() # Placeholder, actual next step depends on design
-            return
-
-        # AIController will select top N entities from the 'entities' list.
-        # We still store all extracted entities in _enhancement_process_data['entities'] for potential later use.
-        
-        self._enhancement_process_data['current_step'] = 'ai_managed_entity_web_search'
-        self.statusBar().showMessage(f"Found {len(entities)} entities. Handing over to AI for web search...", 5000)
-        self.progress_manager.on_progress_update(30)
-        self.progress_manager.show_message("AI is preparing web searches for entities...")
-
-        try:
-            self.ai_controller.search_web_for_entities(
-                self._enhancement_process_data['original_note_text'],
-                self._enhancement_process_data['entities']
-            )
-        except Exception as e:
-            logger.error(f"Error calling ai_controller.search_web_for_entities: {e}")
-            self._on_note_enhancement_sequence_error(("Web Search Initiation Error", str(e)))
-
-    def _on_entity_extraction_error(self, error_details):
-        """Handle errors during entity extraction."""
-        err_type, err_msg, _ = error_details
-        logger.error(f"Entity Extraction Error: {err_type}: {err_msg}")
-        self.progress_manager.hide_progress()
-        self.statusBar().showMessage("Entity extraction failed.", 5000)
-        QMessageBox.critical(self, ERROR_DIALOG_TITLE, f"{err_type}: {err_msg}")
-        self._enhancement_process_data = None # Reset on error
-
-    # --- Web Search for Enhancement Signal Handlers ---
-    def _on_web_search_for_enhancement_started(self):
-        """Handle the start of web search for enhancement."""
-        logger.info("Web Search for Enhancement Started.")
-        self.progress_manager.start_operation_with_message(SEARCHING_WEB_MESSAGE)
-
-    def _on_web_search_for_enhancement_result(self, aggregated_search_data):
-        """
-        Handles results from AIController.request_web_search_for_enhancement.
-        NOTE: In the simplified direct AI enhancement flow initiated by enhance_current_note_with_ai,
-        this method's role is primarily to log if web search was somehow still performed.
-        The actual AI call for enhancement is made directly in enhance_current_note_with_ai.
-        """
-        logger.info(f"_on_web_search_for_enhancement_result called. Aggregated search data present: {bool(aggregated_search_data)}")
-
-        if not aggregated_search_data:
-            logger.info("Web search yielded no results or was intentionally bypassed for direct AI enhancement.")
-            # The main AI call is in enhance_current_note_with_ai.
-            # Update progress if this slot is part of an old flow that set web search progress.
-            if self.progress_manager.progress_bar and self.progress_manager.progress_bar.isVisible():
-                 self.progress_manager.update_progress(70, "Web search complete (no results/bypassed).")
-            self.update_status_bar("Web search bypassed or no results; direct AI enhancement is primary.")
-        else:
-            # This case is unexpected if enhance_current_note_with_ai is the sole entry for enhancement.
-            logger.warning("Web search results were received, but the current enhancement flow "
-                           "bypasses their integration into the AI prompt.")
-            if self.progress_manager.progress_bar and self.progress_manager.progress_bar.isVisible():
-                self.progress_manager.update_progress(70, "Web search results obtained (currently not used)." )
-            self.update_status_bar("Web search results received but currently not used for AI enhancement.")
-
-        # IMPORTANT: Do NOT initiate a new AI text generation call from here to avoid conflicts
-        # with the direct call in enhance_current_note_with_ai.
-        # That function is now solely responsible for initiating the enhancement AI call.
-        # The text_generation_result signal (connected to _on_text_generation_result)
-        # will handle hiding the progress dialog when the AI operation completes.
-
-    def _on_web_search_for_enhancement_error(self, error_details):
-        """Handle errors during AI-managed web search for enhancement."""
-        err_type, err_msg, _ = error_details
-        logger.error(f"Web Search for Enhancement Error: {err_type}: {err_msg}")
-        self.progress_manager.hide_progress()
-        self.statusBar().showMessage("Web search failed.", 5000)
-        QMessageBox.critical(
-            self,
-            ERROR_DIALOG_TITLE,
-            f"{err_type}: {err_msg}")
-
-    # --- Answer Extraction Signal Handlers ---
-    def _on_answer_extraction_started(self):
-        """Handle the start of answer extraction."""
-        logger.info("Answer Extraction Started.")
-        self.progress_manager.show_message("Extracting answers from web content...")
-
-    def _on_answer_extracted_for_enhancement(self, qna_results: dict):
-        """Handles extracted answers (Q&A results) for the enhancement process."""
-        logger.info(f"Answers extracted for enhancement: {len(qna_results) if isinstance(qna_results, (dict, list)) else 'Invalid type'} items.")
-        if not qna_results:
-            logger.info("No Q&A results to process.")
-            return
-
-        processed_items = []
-        if isinstance(qna_results, dict):
-            processed_items = list(qna_results.values())
-        elif isinstance(qna_results, list):
-            processed_items = qna_results
-        else:
-            logger.warning(f"Unexpected type for qna_results: {type(qna_results)}. Expected dict or list.")
-
-        for item in processed_items:
-            if isinstance(item, dict) and 'answer' in item and 'source_url' in item:
-                self._collected_enhancements.append({
-                    'type': 'qna',
-                    'answer': item.get('answer'),
-                    'source_url': item.get('source_url'),
-                    'query': item.get('query', '')
-                })
-            else:
-                logger.warning(f"Skipping malformed Q&A result item: {item}")
-        
-        self.progress_manager.show_message(f"{len(self._collected_enhancements)} enhancement items collected so far.")
-        # AIController manages sequence flow.
-
-    def _on_answer_extraction_error(self, error_details):
-        err_type, err_msg, _ = error_details
-        logger.error(f"Answer Extraction Error for enhancement: {err_type}: {err_msg}")
-        self.progress_manager.on_operation_error(f"Failed to extract answers: {err_msg}")
-        QMessageBox.critical(self, ERROR_DIALOG_TITLE, f"Could not extract answers from web content: {err_type}: {err_msg}")
-        self._collected_enhancements_error_flag = True
-        # AIController manages sequence flow / error propagation.
-
-    def _on_answer_extraction_finished(self):
-        logger.info("Answer extraction phase finished.")
-        self.progress_manager.on_operation_finished("Answer extraction complete.")
-        # This slot handles the completion of the Q&A part of the enhancement.
-        # The AIController will likely take the _collected_enhancements and proceed to summarize them.
-
-        # If there was an error during Q&A, _collected_enhancements_error_flag would be true.
-        # The AIController should also be aware of this state, possibly through an error signal
-        # or by checking the results it receives.
-
-        if self._enhancement_process_data and self._enhancement_process_data.get('current_step') == 'qna_on_web_content_processing': # or similar
-            if self._collected_enhancements_error_flag:
-                logger.warning("Skipping final summarization due to errors in Q&A phase.")
-                # self._on_note_enhancement_sequence_error could be triggered by AIController if needed
-                # or handle completion with error state here.
-                self._on_note_enhancement_sequence_finished(success=False) # Indicate error
-                return
-            
-            self._enhancement_process_data['current_step'] = 'final_summary_generation'
-            self.progress_manager.on_progress_update(80)
-            self.progress_manager.show_message("Generating final enhanced summary...")
-            try:
-                self.ai_controller.summarize_enhancement_context(
-                    self._enhancement_process_data['original_note_text'],
-                    self._collected_enhancements # This now contains Q&A items
-                )
-            except Exception as e:
-                logger.error(f"Error calling ai_controller.summarize_enhancement_context: {e}")
-                self._on_note_enhancement_sequence_error(("Final Summarization Initiation Error", str(e), traceback.format_exc()))
-        else:
-            logger.debug("_on_answer_extraction_finished called, but process not in expected state.")
-
-    def _on_final_summary_for_enhancement_result(self, summary_text: str):
-        """Handle the final summary result for the enhancement workflow."""
-        logger.info(f"MainWindow: Received final summary for enhancement: {summary_text[:100]}...")
-        if self._enhancement_process_data and self._enhancement_process_data.get('current_step') == 'final_summary_generation':
-            self._enhancement_process_data['final_summary_enhancement'] = summary_text
-            # Update UI or show the summary
-            self._display_enhanced_content(summary_text)
-            self._on_note_enhancement_sequence_finished()
-        else:
-            logger.warning("Received final summary but enhancement process not in correct state.")
-
-    # --- Overall Enhancement Sequence Completion --- 
-    def _on_note_enhancement_sequence_finished(self, success: bool = True):
-        logger.info(f"Full Note Enhancement Sequence Concluded. Success: {success}")
-        
-        if self._collected_enhancements:
-            logger.info(f"Displaying {len(self._collected_enhancements)} enhancement suggestions.")
-            self._display_enhancement_suggestions(self._collected_enhancements)
-        elif success and not self._collected_enhancements_error_flag:
-            logger.info("Enhancement sequence finished successfully but no enhancements were generated.")
-            QMessageBox.information(self, NO_SUGGESTIONS_DIALOG_TITLE, NO_SUGGESTIONS_MESSAGE)
-        elif self._collected_enhancements_error_flag:
-            logger.warning("Enhancement sequence finished, but errors occurred and no suggestions were generated.")
-            # Specific error messages should have been shown by individual handlers.
-            # Optionally, show a generic message if no specifics were shown but flag is true.
-        else: # Not success, no specific errors flagged, no enhancements
-            logger.info("Enhancement sequence did not produce suggestions or encountered an issue without specific errors.")
-            QMessageBox.information(self, NOTE_ENHANCEMENT_ERROR_TITLE, "Note enhancement process completed but did not yield suggestions or encountered an unspecified issue.")
-        
-        self.progress_manager.on_operation_finished("Note enhancement process complete.")
-        self.statusBar().showMessage("Note enhancement process finished.", 5000)
-        
-        # Reset state for next enhancement operation
-        self._current_enhancement_context = None
-        self._collected_enhancements = [] 
-        self._collected_enhancements_error_flag = False
-
-    def _on_note_enhancement_sequence_error(self, error_details: tuple):
-        # Assuming error_details is a tuple e.g. (type, message, traceback)
-        # The actual structure depends on what AIController.note_enhancement_sequence_error emits.
-        if isinstance(error_details, tuple) and len(error_details) >= 2:
-            err_type, err_msg = error_details[0], error_details[1]
-            logger.error(f"Note enhancement sequence error: {err_type}: {err_msg}")
-            self.progress_manager.on_operation_error(f"Enhancement failed: {err_msg}")
-            self.statusBar().showMessage(f"Note enhancement failed: {err_msg}", 5000)
-            QMessageBox.critical(
-                self,
-                ENHANCEMENT_SEQUENCE_ERROR_TITLE,
-                f"The note enhancement process failed: {err_type}: {err_msg}")
-        else: # Fallback if error_details is just a string or unexpected format
-            error_message_str = str(error_details)
-            logger.error(f"Note enhancement sequence error (unexpected format): {error_message_str}")
-            self.progress_manager.on_operation_error(f"Enhancement failed: {error_message_str}")
-            self.statusBar().showMessage(f"Note enhancement failed: {error_message_str}", 5000)
-            QMessageBox.critical(
-                self,
-                ENHANCEMENT_SEQUENCE_ERROR_TITLE,
-                f"The note enhancement process failed: {error_message_str}")
-
-        # Reset enhancement data if an error occurs mid-sequence
-        self._enhancement_process_data = None
-        self._collected_enhancements = []
-        self._collected_enhancements_error_flag = False
-        self.progress_manager.hide_progress() # Ensure progress bar is hidden on error
 
     def on_trigger_full_enhancement_pipeline(self):
         """
         Starts the full note enhancement pipeline:
         1. Extracts entities from the current note.
-        2. (Handled by AIController/MainWindow signals) Triggers web search based on entities.
-        3. (Handled by AIController/MainWindow signals) Fetches content from search results.
-        4. (Handled by AIController/MainWindow signals) Performs Q&A or Summarization on content.
-        5. (Handled by AIController/MainWindow signals) Displays suggestions.
+        2. Proceeds to generate enhancement using original text and entities, but no web content.
         """
         logger.info("Full note enhancement pipeline triggered.")
         
@@ -1173,47 +601,7 @@ class MainWindow(QMainWindow):
         # Call the method that sets up the enhancement data and starts the first step
         self.on_start_note_enhancement_workflow() 
 
-    def on_start_note_enhancement_workflow(self):
-        """Initiates the multi-step note enhancement workflow by setting up data and starting entity extraction."""
-        note_text = self.text_edit.toPlainText() # Already checked in on_trigger_full_enhancement_pipeline, but good for direct calls
-        if not note_text.strip(): # Basic check if called directly
-            QMessageBox.warning(self, EMPTY_NOTE_TITLE, "Please enter some text before starting the enhancement workflow.")
-            return
-
-        word_count = len(note_text.split()) # Also checked, but good for direct calls
-        if word_count < self.MIN_WORDS_FOR_ENHANCEMENT:
-            QMessageBox.warning(self, self.MSG_NOT_ENOUGH_TEXT, 
-                                f"Please provide at least {self.MIN_WORDS_FOR_ENHANCEMENT} words for enhancement (current: {word_count}).")
-            return
-
-        logger.info("Starting note enhancement workflow.")
-        self.progress_manager.start_operation_with_message("Starting enhancement: Extracting entities...")
-
-        self._enhancement_process_data = {
-            'current_step': 'entity_extraction',
-            'original_note_text': note_text,
-            'entities': None,
-            'web_search_results': None, # To store collated results from WebController/AIController
-            'qna_results': None, # To store results from Q&A on web content
-            'final_summary': None # For a final summary of enhanced content if applicable
-        }
-        self._collected_enhancements = [] # Initialize list for suggestions
-        self._collected_enhancements_error_flag = False
-
-        try:
-            logger.info("Calling ai_controller.extract_entities() to start enhancement.")
-            self.ai_controller.extract_entities(note_text)
-            # Status bar will be updated by _on_entity_extraction_started which is connected to ai_controller.entity_extraction_started
-        except Exception as e:
-            logger.error(f"Exception when trying to start entity extraction in enhancement workflow: {e}", exc_info=True)
-            QMessageBox.critical(
-                self,
-                NOTE_ENHANCEMENT_ERROR_TITLE,
-                f"An unexpected error occurred while starting entity extraction: {e}"
-            )
-            self.statusBar().showMessage("Error starting note enhancement.", 5000)
-            self._enhancement_process_data = None # Clear data on error
-            self.progress_manager.hide_progress()
+    
 
     def _display_enhancement_suggestions(self, suggestions: list):
         """Display the enhancement suggestions in a dialog."""
@@ -1233,17 +621,20 @@ class MainWindow(QMainWindow):
             logger.warning("Attempted to insert an empty enhancement suggestion.")
             return
         
+        # This logic seems tied to the older pipeline's output format.
+        # The new approach uses EnhancementPreviewDialog which handles insertion.
+        # Consider removing or adapting this if the old pipeline is gone.
+
         cursor = self.text_edit.textCursor()
         # Add some spacing if not at the start of a line or if there's preceding text on the line
         if not cursor.atBlockStart():
-            cursor.insertBlock() # Start a new paragraph for the suggestion
-        
+            cursor.insertBlock() 
         # Could format it further, e.g., add a header or quote block
         cursor.insertText(suggestion_text)
-        cursor.insertBlock() # Add a new line after insertion
+        cursor.insertBlock() 
 
         self.statusBar().showMessage("Enhancement suggestion inserted.", 3000)
-        self._on_text_changed() # Ensure document state is updated
+        self._on_text_changed() 
 
     def update_window_title_based_on_save_state(self):
         """Updates the window title based on the current file and save state."""
@@ -1260,84 +651,16 @@ class MainWindow(QMainWindow):
 
     def update_title(self):
         """Update the window title based on the current file and unsaved changes."""
-        base_app_title = self.APP_TITLE # Use class constant
+        base_app_title = self.APP_TITLE 
         if self.document_model.current_file:
             file_name = os.path.basename(self.document_model.current_file)
         else:
-            file_name = "Untitled" # Or use self.EMPTY_NOTE_TITLE if preferred
+            file_name = "Untitled" 
         
         modified_indicator = "*" if self.document_model.unsaved_changes else ""
         
         self.setWindowTitle(f"{file_name}{modified_indicator} - {base_app_title}")
         logger.debug(f"Window title updated to: {file_name}{modified_indicator} - {base_app_title}")
-
-    def _setup_ui(self):
-        # Central widget and layout
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        layout = QVBoxLayout()
-        central_widget.setLayout(layout)
-        
-        # Text Editor
-        self.text_edit = QTextEdit()
-        self.text_edit.setObjectName("MainTextEdit")
-        layout.addWidget(self.text_edit)
-        
-        # Menu Bar
-        menubar = self.menuBar()
-        menubar.setObjectName("MainMenuBar")
-        create_file_menu(self, menubar)
-        create_edit_menu(self, menubar)
-        create_ai_tools_menu(self, menubar)
-        create_view_menu(self, menubar)
-        create_web_menu(self, menubar)
-        # Context menu actions are usually set up on the widget itself (e.g., text_edit)
-        # create_context_menu_actions(self) # Assuming this is for the text_edit
-
-        # Toolbar
-        toolbar = QToolBar("Main Toolbar")
-        toolbar.setObjectName("MainToolBar")
-        self.addToolBar(toolbar)
-        populate_toolbar(self, toolbar)
-
-        # Status Bar (already created by QMainWindow by default)
-        self.statusBar().setObjectName("MainStatusBar")
-
-    def _on_text_changed(self):
-        """Handle the textChanged signal from the text editor."""
-        # This method is called whenever the text in the editor changes.
-        # logger.debug("Text changed") # Can be too verbose
-        self.document_model.set_content(self.text_edit.toPlainText()) # Correct way to mark as dirty via DocumentModel
-        self._update_status_bar_word_count()
-        # Potentially update UI elements, e.g., enable save action
-        if hasattr(self, 'action_save') and self.action_save:
-             self.action_save.setEnabled(self.document_model.unsaved_changes) # Corrected from has_unsaved_changes()
-        self.update_title() # Update window title to reflect potential unsaved changes
-        # Auto-save logic could be triggered here after a delay
-
-    def _on_cursor_position_changed(self):
-        """Handle the cursorPositionChanged signal from the text editor."""
-        # This method is called whenever the cursor position changes.
-        # logger.debug("Cursor position changed") # Can be too verbose
-        # Update status bar with current line/column, or other contextual info
-        cursor = self.text_edit.textCursor()
-        line_num = cursor.blockNumber() + 1
-        col_num = cursor.columnNumber() + 1
-        self.statusBar().showMessage(f"Line: {line_num}, Col: {col_num}", 1000) # Temporary message
-        self._update_contextual_actions() # e.g. based on selection
-
-    def _update_status_bar_word_count(self):
-        """Update the word count in the status bar."""
-        pass
-
-    def _update_contextual_actions(self):
-        """Placeholder: Update contextual actions based on editor state (e.g., selection)."""
-        logger.debug("Updating contextual actions (placeholder).")
-        # Example logic (to be expanded):
-        # has_selection = self.text_edit.textCursor().hasSelection()
-        # self.action_cut.setEnabled(has_selection)
-        # self.action_copy.setEnabled(has_selection)
-        # self.action_search_selected.setEnabled(has_selection)
 
     def enhance_current_note_with_ai(self):
         """Enhances the current note using AI directly for text generation."""
@@ -1352,7 +675,8 @@ class MainWindow(QMainWindow):
         logger.info("Proceeding directly to AI text generation for note enhancement.")
         enhancement_prompt = (
             f"Please enhance the following text by adding relevant information, insights, and details. "
-            f"If you have access to web information, please use it and cite your sources. "
+            f"Return the result as plain text, without any markdown formatting. "
+            f"If you have access to web information, please use it and cite your sources.\n\n"
             f"Original text:\n\n{current_note_text}"
         )
         
@@ -1360,7 +684,7 @@ class MainWindow(QMainWindow):
             # Directly request text generation for enhancement
             self.ai_controller.request_text_generation(prompt_text=enhancement_prompt)
             # Adjusted progress: 50% after sending request, actual generation will take more.
-            self.progress_manager.on_progress_update(50)
+            self.progress_manager.on_progress_update(50) 
             self.progress_manager.show_message("Requesting AI to enhance note...")
             self.update_status_bar("Sent request to AI for note enhancement...")
         except Exception as e:
@@ -1382,3 +706,332 @@ class MainWindow(QMainWindow):
         # Insert the enhanced text into the document
         self.text_edit.setPlainText(enhanced_text)
         self.statusBar().showMessage("Enhanced content inserted into the document.")
+
+    # --- NEW Enhancement Handler for Styles --- 
+    def _get_enhancement_prompt(self, style: str, text_to_enhance: str, custom_prompt_text: str = None) -> str:
+        """Constructs the prompt for the AI based on the enhancement style."""
+        base_instruction = "Please enhance the following text:"
+        style_modifier = ""
+
+        if style == "clarity":
+            style_modifier = " Focus on improving clarity and readability."
+        elif style == "concise":
+            style_modifier = " Make the text more concise while retaining the core meaning."
+        elif style == "expand":
+            style_modifier = " Expand on the details and provide more context or information."
+        elif style == "custom":
+            if custom_prompt_text:
+                # Use the user's custom prompt directly as the instruction
+                base_instruction = custom_prompt_text
+                style_modifier = ""
+                logger.info("Using custom enhancement prompt.")
+            else:
+                # Fallback if custom prompt was somehow empty (should be caught earlier)
+                logger.warning("Custom enhancement style selected but no prompt provided. Using default.")
+                style_modifier = " Add relevant information, insights, and details."
+        else: 
+             style_modifier = " Add relevant information, insights, and details."
+
+        prompt = f"{base_instruction}{style_modifier}\n\nOriginal text:\n---\n{text_to_enhance}\n---"
+        logger.debug(f"Constructed enhancement prompt (style: {style}) - First 100 chars: {prompt[:100]}...")
+        return prompt
+
+    def on_enhance_note_triggered(self, style: str):
+        """Handles the 'Enhance Note' action trigger for different styles."""
+        logger.info(f"Enhance Note triggered with style: {style}")
+
+        # 1. Determine text to enhance (selection or full note)
+        cursor = self.text_edit.textCursor()
+        selected_text = cursor.selectedText()
+        original_full_text = self.text_edit.toPlainText()
+        
+        text_for_prompt_generation = selected_text if selected_text else original_full_text
+        is_selection = bool(selected_text)
+        selection_info = {'start': cursor.selectionStart(), 'end': cursor.selectionEnd()} if is_selection else None
+
+        # 2. Validate text length (use text_for_prompt_generation)
+        if not text_for_prompt_generation or len(text_for_prompt_generation.split()) < self.MIN_WORDS_FOR_ENHANCEMENT:
+            logger.warning(f"Not enough text to enhance (less than {self.MIN_WORDS_FOR_ENHANCEMENT} words)")
+            QMessageBox.warning(
+                self,
+                self.MSG_NOT_ENOUGH_TEXT,
+                f"Please select or write more text ({self.MIN_WORDS_FOR_ENHANCEMENT} words minimum) to enhance."
+            )
+            return
+
+        # 3. Handle Custom Prompt Input
+        custom_prompt_input = None
+        if style == "custom":
+            text, ok = QInputDialog.getText(self, 'Custom Enhancement Prompt',
+                                            'Enter your enhancement instruction:')
+            if ok and text:
+                custom_prompt_input = text
+                logger.info(f"User provided custom prompt: '{text[:50]}...'" )
+            else:
+                logger.info("Custom enhancement cancelled by user or empty prompt.")
+                self.enhancement_state_manager.reset() # Reset if custom prompt is cancelled
+                return 
+
+        # 4. Construct the Prompt using the helper method
+        prompt = self._get_enhancement_prompt(style, text_for_prompt_generation, custom_prompt_input)
+        if not prompt: # Handle cases where prompt generation might fail (e.g., no style match in helper)
+            logger.warning("Enhancement prompt generation failed (e.g., no matching style or cancelled input).")
+            self.enhancement_state_manager.reset() # Reset state if we abort
+            return
+
+        # 5. Initialize Enhancement State Manager
+        logger.debug(f"Before start_enhancement, state: {self.enhancement_state_manager.get_state()}")
+        self.enhancement_state_manager.start_enhancement(original_full_text, selection_info)
+        logger.debug(f"After start_enhancement, state: {self.enhancement_state_manager.get_state()}")
+
+        logger.debug(f"Before generating_enhancement, state: {self.enhancement_state_manager.get_state()}")
+        self.enhancement_state_manager.generating_enhancement(prompt) # Update state to 'awaiting_enhancement'
+        logger.debug(f"After generating_enhancement, state: {self.enhancement_state_manager.get_state()}")
+
+        # --- 6. Call AI Controller --- 
+        try:
+            # Get max_tokens setting using get() and convert manually
+            max_tokens_setting = self.app_settings.get('AI', 'max_new_tokens_generation', 2048)
+            try:
+                max_tokens = int(max_tokens_setting)
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid value '{max_tokens_setting}' for regeneration. Using default 2048.")
+                max_tokens = 2048
+            
+            self.ai_controller.request_text_generation(prompt, max_new_tokens=max_tokens)
+            self.statusBar().showMessage(f"Requesting '{style}' enhancement...", 3000)
+            self.progress_manager.start_operation_with_message(f"Requesting AI enhancement ({style})...")
+        except Exception as e:
+            logger.error(f"Error triggering note enhancement (style: {style}): {e}", exc_info=True)
+            QMessageBox.critical(self, NOTE_ENHANCEMENT_ERROR_TITLE, f"Could not start enhancement: {e}")
+            self.enhancement_state_manager.enhancement_error(f"Failed to trigger AI: {e}") # Update state
+            self.progress_manager.hide_progress()
+
+    # --- Window Event Handlers ---
+    def closeEvent(self, event):
+        """Handles the window close event, checking for unsaved changes."""
+        logger.debug("Close event triggered.")
+        if self.document_model.unsaved_changes:
+            logger.info("Unsaved changes detected on close.")
+            reply = QMessageBox.question(
+                self,
+                'Unsaved Changes',
+                "You have unsaved changes. Do you want to save them before quitting?",
+                QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+                QMessageBox.Cancel 
+            )
+
+            if reply == QMessageBox.Save:
+                logger.debug("User chose Save.")
+                # Attempt to save. save_file returns True on success, False on failure/cancel.
+                if self.file_controller.save_file():
+                    logger.info("File saved successfully. Accepting close event.")
+                    event.accept()
+                else:
+                    # Save failed or was cancelled by the user (e.g., in Save As dialog)
+                    logger.info("Save operation failed or cancelled. Ignoring close event.")
+                    event.ignore()
+            elif reply == QMessageBox.Discard:
+                logger.info("User chose Discard. Accepting close event.")
+                event.accept()
+            else: 
+                logger.info("User chose Cancel or closed the dialog. Ignoring close event.")
+                event.ignore()
+        else:
+            logger.debug("No unsaved changes. Accepting close event.")
+            event.accept() 
+
+    # --- Summary Panel Setup ---
+    def _setup_summary_dock_widget(self):
+        """Create and configure the dock widget for the summary panel."""
+        logger.debug("Setting up summary dock widget.")
+        self.summary_dock_widget = QDockWidget("Note Summary", self)
+        self.summary_dock_widget.setObjectName("SummaryDockWidget")
+        self.summary_panel_view = SummaryPanel(self) # Pass self as parent
+        self.summary_dock_widget.setWidget(self.summary_panel_view)
+        self.summary_dock_widget.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        self.summary_dock_widget.setVisible(False) # Initially hidden
+        self.addDockWidget(Qt.RightDockWidgetArea, self.summary_dock_widget)
+
+        # Connect signals from the summary panel view to MainWindow methods
+        # Example: self.summary_panel_view.some_signal.connect(self.some_handler)
+        # The connection below caused the AttributeError because the signal doesn't exist.
+        # The SummaryPanel now calls parent methods directly (e.g., self.parent.insert_summary_at_cursor).
+        # self.summary_panel_view.insert_summary_requested.connect(self.insert_summary_at_cursor)
+
+        logger.debug("Summary dock widget setup complete.")
+
+    def _show_enhancement_preview_dialog(self):
+        """Creates, configures, and shows the EnhancementPreviewDialog."""
+        logger.debug("Entered _show_enhancement_preview_dialog method.") # ADDED LOG
+        if self.enhancement_state_manager.get_state() != 'enhancement_received':
+            logger.error("Attempted to show preview dialog in unexpected state: %s", self.enhancement_state_manager.get_state())
+            return
+
+        generated_text = self.enhancement_state_manager.get_generated_text()
+        original_full_text = self.enhancement_state_manager.get_original_text() # Get full text for context
+        logger.debug("Retrieved generated and original text for dialog.") # ADDED LOG
+
+        # Check if dialog already exists (e.g., from iterative refinement)
+        # We should ideally pass the state manager to the dialog or manage dialog instance here
+        # For simplicity now, let's assume we create a new one each time initially
+        # A better approach would be to update an existing dialog if self._current_enhancement_dialog exists
+
+        logger.info("Creating EnhancementPreviewDialog instance.") # ADDED LOG (moved slightly)
+        dialog = EnhancementPreviewDialog(generated_text, original_full_text, self)
+        logger.debug("EnhancementPreviewDialog instance created.") # ADDED LOG
+
+        # Connect signals FROM the dialog
+        dialog.accepted.connect(self._handle_enhancement_acceptance)
+        dialog.rejected.connect(self._handle_enhancement_rejection)
+        dialog.regenerate_requested.connect(self._on_enhancement_regenerate_requested) # Connect regeneration
+        logger.debug("Connected dialog signals.") # ADDED LOG
+
+        logger.info("Executing dialog.exec_() to show modal dialog.") # ADDED LOG
+        dialog.exec_() # Show the dialog modally
+        logger.info("dialog.exec_() finished.") # ADDED LOG
+
+        # Dialog closed - signals handle acceptance/rejection/regeneration
+        # Reset state manager ONLY if not regenerating
+        if self.enhancement_state_manager.get_state() not in ['refining', 'awaiting_enhancement']:
+            logger.debug("Resetting enhancement state after dialog close (not regenerating).")
+            self.enhancement_state_manager.reset()
+
+    def _handle_enhancement_acceptance(self):
+        """Handles the acceptance action from the EnhancementPreviewDialog."""
+        logger.info("Enhancement accepted by user.")
+        # Assumes the dialog is closed right after 'accepted' signal if modal
+        # Need to get the final text *before* dialog might be destroyed
+        # This requires coordination - maybe dialog passes text via signal?
+        # Or we get it from the state manager *before* resetting?
+
+        if self.enhancement_state_manager.get_state() != 'enhancement_received':
+            logger.warning("Enhancement accepted in unexpected state: %s", self.enhancement_state_manager.get_state())
+            # Don't reset if state is wrong
+            return
+
+        accepted_text = self.enhancement_state_manager.get_generated_text() # Get text before state change
+        selection_info = self.enhancement_state_manager.get_selection_info()
+
+        self.enhancement_state_manager.enhancement_accepted() # Update state
+
+        if selection_info:
+            logger.info("Applying enhancement to selection.")
+            cursor = self.text_edit.textCursor()
+            cursor.beginEditBlock() 
+            cursor.setPosition(selection_info['start'])
+            cursor.setPosition(selection_info['end'], QTextCursor.KeepAnchor)
+            cursor.insertText(accepted_text) 
+            cursor.endEditBlock()
+        else:
+            logger.info("Applying enhancement to full note.")
+            self.text_edit.setPlainText(accepted_text)
+
+        self.document_model.set_content(self.text_edit.toPlainText()) # Update model
+        self.statusBar().showMessage("Note enhanced successfully!", 5000)
+        self.enhancement_state_manager.reset() # Reset after successful application
+
+    def _handle_enhancement_rejection(self):
+        """Handles the rejection action from the EnhancementPreviewDialog."""
+        logger.info("Enhancement rejected by user.")
+        if self.enhancement_state_manager.get_state() == 'enhancement_received':
+            self.enhancement_state_manager.enhancement_rejected() # Update state
+            self.statusBar().showMessage("Enhancement discarded.", 3000)
+            self.enhancement_state_manager.reset() # Reset state
+        else:
+            logger.warning("Enhancement rejected in unexpected state: %s", self.enhancement_state_manager.get_state())
+
+    def _on_enhancement_regenerate_requested(self):
+        """Handles the request to regenerate an enhancement from the preview dialog."""
+        logger.info("Enhancement regeneration requested by user.")
+        # TODO: Implement regeneration logic:
+        # 1. Get original text, style, potentially existing prompt from state manager
+        # 2. Maybe ask for a new/modified prompt or instruction
+        # 3. Set state manager to 'awaiting_enhancement' or a new 'awaiting_regeneration' state
+        # 4. Call self.ai_controller.request_text_generation with the appropriate prompt
+        self.statusBar().showMessage("Regeneration feature not yet fully implemented.", 3000)
+        # For now, just reset the state to allow trying again from scratch
+        # current_dialog = self.findChild(EnhancementPreviewDialog) # Close existing dialog if any
+        # if current_dialog:
+        #     current_dialog.reject() # or accept() depending on desired flow
+        self.enhancement_state_manager.reset()
+        QMessageBox.information(self, "Regenerate", "Regeneration feature is under development.")
+
+    def on_configure_ai_services(self):
+        """Placeholder for AI services configuration dialog."""
+        logger.info("AI Services configuration action triggered (not implemented yet).")
+        QMessageBox.information(self, "AI Services", "AI Services configuration is not yet implemented.")
+
+    # --- End General Helper Methods ---
+
+    def _setup_ui(self):
+        """Set up the main UI components."""
+        logger.debug("Setting up UI")
+        # --- Central Widget --- 
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        layout = QVBoxLayout()
+        self.central_widget.setLayout(layout)
+        
+        # Text Editor
+        self.text_edit = QTextEdit()
+        self.text_edit.setObjectName("MainTextEdit")
+        layout.addWidget(self.text_edit)
+        
+        # Menu Bar
+        menubar = self.menuBar()
+        menubar.setObjectName("MainMenuBar")
+        create_file_menu(self, menubar)
+        create_edit_menu(self, menubar)
+        create_ai_tools_menu(self, menubar)
+        create_view_menu(self, menubar)
+        # create_web_menu(self, menubar) 
+        create_context_menu_actions(self, menubar)
+        
+        # Toolbar
+        toolbar = QToolBar("Main Toolbar")
+        toolbar.setObjectName("MainToolBar")
+        self.addToolBar(toolbar)
+        populate_toolbar(self, toolbar)
+
+        # Status Bar (already created by QMainWindow by default)
+        self.statusBar().setObjectName("MainStatusBar")
+
+    def _on_text_changed(self):
+        """Handle the textChanged signal from the text editor."""
+        # This method is called whenever the text in the editor changes.
+        # logger.debug("Text changed") 
+        self.document_model.set_content(self.text_edit.toPlainText()) 
+        # self._update_status_bar_word_count() # TODO: Implement word count if needed
+        # Potentially update UI elements, e.g., enable save action
+        if hasattr(self, 'action_save') and self.action_save:
+             self.action_save.setEnabled(self.document_model.unsaved_changes) 
+        self.update_title() 
+        # Auto-save logic could be triggered here after a delay
+
+    def _on_cursor_position_changed(self):
+        """Handle the cursorPositionChanged signal from the text editor."""
+        # This method is called whenever the cursor position changes.
+        # logger.debug("Cursor position changed") 
+        # Update status bar with current line/column, or other contextual info
+        cursor = self.text_edit.textCursor()
+        line_num = cursor.blockNumber() + 1
+        col_num = cursor.columnNumber() + 1
+        self.statusBar().showMessage(f"Line: {line_num}, Col: {col_num}", 2000) # Show briefly 
+        self._update_contextual_actions() 
+
+    def _update_status_bar_word_count(self):
+        """Update the word count in the status bar."""
+        # TODO: Implement word count logic if desired
+        pass
+
+    def _update_contextual_actions(self):
+        """Placeholder: Update contextual actions based on editor state (e.g., selection)."""
+        # logger.debug("Updating contextual actions (placeholder).")
+        # Example logic (to be expanded):
+        has_selection = self.text_edit.textCursor().hasSelection()
+        # Example: Enable/disable actions based on selection
+        if hasattr(self, 'action_cut'): self.action_cut.setEnabled(has_selection)
+        if hasattr(self, 'action_copy'): self.action_copy.setEnabled(has_selection)
+        if hasattr(self, 'action_search_selected'): self.action_search_selected.setEnabled(has_selection)
+        # Add more actions as needed

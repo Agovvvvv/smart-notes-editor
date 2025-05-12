@@ -177,94 +177,6 @@ class WebScrapingWorker(Worker):
             logger.info("WebScrapingWorker (overridden run) finished for: %s" % self.fn.__name__)
 
 
-class WebSearchForEntitiesWorker(Worker):
-    """
-    Worker thread for performing web searches for a list of entities.
-    Iterates through entities, calls a search function for each, and collates results.
-    """
-
-    def __init__(self, search_fn, entities: list, original_note_text: str = None, **kwargs):
-        """
-        Initialize the web search for entities worker.
-        
-        Args:
-            search_fn: The web search function to call per entity (e.g., a wrapper around scraper.search_web).
-            entities (list): A list of entity strings to search for.
-            original_note_text (str, optional): The original note text, if needed for context by search_fn.
-            **kwargs: Additional keyword arguments to pass to the parent Worker class.
-        """
-        self.entities = entities
-        self.original_note_text = original_note_text
-        # We pass search_fn and any other relevant fixed args to the parent Worker's __init__.
-        # The actual search_fn will be called with entity-specific details in the run method.
-        super().__init__(search_fn, **kwargs) # Pass search_fn and other kwargs to parent
-        logger.info(f"WebSearchForEntitiesWorker initialized for {len(entities)} entities.")
-
-    @pyqtSlot()
-    def run(self):
-        """
-        Execute the web search for each entity and emit collated results.
-        """
-        self.signals.started.emit()
-        logger.info(f"WebSearchForEntitiesWorker started for {self.fn.__name__} with {len(self.entities)} entities.")
-        
-        all_results = {} # {entity_string: [search_results_for_entity]}
-
-        try:
-            for entity in self.entities:
-                if not entity or not isinstance(entity, str):
-                    logger.warning(f"Skipping invalid entity: {entity}")
-                    continue
-                
-                logger.debug(f"Searching for entity: {entity}")
-                # The self.fn is the search_fn passed during __init__.
-                # It should be designed to take an entity string and possibly original_note_text.
-                # Example: search_fn(query=entity, original_note_text=self.original_note_text, ...other_kwargs_from_super_init)
-                
-                # Prepare kwargs for the actual search function call
-                # The 'progress_callback' is already in self.kwargs from the parent Worker's __init__
-                # We are calling the main function `self.fn` (which is `perform_web_searches_for_entities`)
-                # This function itself would then iterate or call sub-functions.
-                # This worker's primary role is to manage the overall process for *all* entities.
-                # Let's adjust: the `self.fn` itself should handle the iteration and calling the *actual* per-entity search.
-                # So, WebSearchForEntitiesWorker's `run` method calls `self.fn` once, passing the list of entities.
-
-                # Corrected approach: The function `self.fn` (perform_web_searches_for_entities)
-                # is responsible for iterating through entities and performing searches.
-                # The worker just calls this main function.
-                
-                # Kwargs for the main search function (self.fn)
-                current_kwargs = self.kwargs.copy()
-                current_kwargs['entities'] = self.entities
-                if self.original_note_text:
-                    current_kwargs['original_note_text'] = self.original_note_text
-
-                # The `fn` (e.g., `perform_web_searches_for_entities`) should return a dict like {entity: results}
-                # and handle its own progress reporting if it's a long process covering multiple entities.
-                # If `fn` is just a simple search for ONE entity, then this loop structure is correct.
-                # Based on AIManager, `perform_web_searches_for_entities` is the main function, so it handles the loop.
-
-                result_for_all_entities = self.fn(**current_kwargs)
-                all_results = result_for_all_entities # Assuming fn returns the final dict
-                break # Since self.fn handles all entities, we break after the first call.
-
-            # If self.fn handles progress internally, this worker's progress signal might be less useful
-            # unless self.fn itself uses the provided progress_callback for sub-steps.
-            # self.signals.progress.emit(100) # Indicate completion of the overall task
-            # Let perform_web_searches_for_entities handle progress via the callback if needed.
-
-        except Exception as e:
-            logger.error(f"Error in WebSearchForEntitiesWorker thread: {e}")
-            traceback_str = "".join(traceback.format_exception(type(e), e, e.__traceback__))
-            logger.error(traceback_str)
-            self.signals.error.emit((type(e), str(e), traceback_str))
-        else:
-            self.signals.result.emit(all_results) 
-        finally:
-            self.signals.finished.emit()
-            logger.info("WebSearchForEntitiesWorker finished.")
-
-
 class ApiSummarizationWorker(Worker):
     """
     Worker thread specifically for API-based text summarization.
@@ -437,28 +349,6 @@ class EntityExtractionWorker(Worker):
         super().__init__(extract_fn, text=text, model_id=model_id)
         logger.info("EntityExtractionWorker initialized.")
 
-
-class QuestionAnsweringWorker(Worker):
-    """Worker thread for Question Answering based on provided context."""
-    def __init__(self, qna_fn, original_note_text: str, extracted_entities: list, web_content_collated: str, qna_model_id: str = None):
-        """
-        Initialize the Question Answering worker.
-
-        Args:
-            qna_fn: The Question Answering function to call (e.g., from AIManager).
-            original_note_text (str): The original text of the note.
-            extracted_entities (list): List of entities extracted from the note.
-            web_content_collated (str): Collated text content from web searches.
-            qna_model_id (str, optional): Specific model ID for Q&A if applicable.
-        """
-        super().__init__(
-            qna_fn,
-            original_note_text=original_note_text,
-            extracted_entities=extracted_entities,
-            web_content_collated=web_content_collated,
-            qna_model_id=qna_model_id
-        )
-        logger.info("QuestionAnsweringWorker initialized.")
 
 class WebContentSummarizationWorker(Worker):
     """

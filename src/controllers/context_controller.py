@@ -87,22 +87,21 @@ class ContextController(QObject):
         """
         if success and self.current_suggestions:
             # If models were loaded successfully and we have pending analysis, run it now
-            self.analyze_context(self.context_manager.current_note_text, self.context_manager.current_web_results)
+            self.analyze_context(self.context_manager.current_note_text)
     
-    def analyze_context(self, note_text, web_results):
+    def analyze_context(self, note_text):
         """
-        Analyze the context of the note and web results.
+        Analyze the context of the note.
         
         Args:
             note_text (str): The text of the note
-            web_results (list): The web search results
         """
         # Emit the started signal
         self.context_analysis_started.emit()
         
         try:
             # Call the manager to analyze the context
-            self.context_manager.analyze_context(note_text, web_results)
+            self.context_manager.analyze_context(note_text)
             
             # The manager will call our callback methods, which will emit the appropriate signals
             # We don't emit the finished signal here because it will be emitted by the callbacks

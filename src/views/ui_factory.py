@@ -1,6 +1,7 @@
 from PyQt5.QtWidgets import QAction, QToolBar
 from PyQt5.QtGui import QIcon
 import logging
+from functools import partial
 
 logger = logging.getLogger(__name__)
 
@@ -89,31 +90,82 @@ def create_edit_menu(main_window, menubar):
     return edit_menu
 
 def create_ai_tools_menu(main_window, menubar):
-    """Creates and returns the AI Tools menu. Sets actions on main_window."""
+    """Create the AI Tools menu and its actions."""
     ai_menu = menubar.addMenu("&AI Tools")
-    
-    main_window.summarize_action = QAction(QIcon.fromTheme("edit-paste"), "&Summarize Note", main_window)
-    main_window.summarize_action.setStatusTip("Generate a summary of the current note using AI")
-    main_window.summarize_action.triggered.connect(main_window.on_summarize_note)
-    ai_menu.addAction(main_window.summarize_action)
+    ai_menu.setObjectName("AiMenu")
 
-    main_window.generate_note_action = QAction(QIcon.fromTheme("document-new"), "&Generate Note...", main_window)
-    main_window.generate_note_action.setStatusTip("Generate new note content based on a prompt using AI")
-    main_window.generate_note_action.triggered.connect(main_window.on_generate_note_text)
-    ai_menu.addAction(main_window.generate_note_action)
+    # --- Summarization --- #
+    action_summarize = QAction(QIcon.fromTheme("edit-copy"), "&Summarize Note", main_window)
+    action_summarize.setStatusTip("Generate a summary of the current note using AI")
+    # Check if the target method exists before connecting
+    if hasattr(main_window, 'on_summarize_note'):
+        action_summarize.triggered.connect(main_window.on_summarize_note)
+    else:
+        logger.warning("Method 'on_summarize_note' not found in main_window.")
+        action_summarize.setEnabled(False)
+    ai_menu.addAction(action_summarize)
+    main_window.action_summarize = action_summarize # Store action reference
 
-    main_window.enhance_note_action = QAction(QIcon.fromTheme("system-run"), "&Enhance Note", main_window)
-    main_window.enhance_note_action.setStatusTip("Enhance the current note directly using AI")
-    main_window.enhance_note_action.triggered.connect(main_window.enhance_current_note_with_ai)
-    ai_menu.addAction(main_window.enhance_note_action)
+    # --- Enhancement Submenu --- #
+    enhance_menu = ai_menu.addMenu(QIcon.fromTheme("document-edit"), "&Enhance Note") # Changed to addMenu
+    enhance_menu.setObjectName("EnhanceNoteMenu")
+
+    styles = {
+        "Improve Clarity": "clarity",
+        "Make Concise": "concise",
+        "Expand Details": "expand",
+        "Custom Prompt...": "custom"
+    }
+
+    for text, style_key in styles.items():
+        action_enhance_style = QAction(text, main_window)
+        action_enhance_style.setStatusTip(f"Enhance the note or selection using AI ({text})")
+        # Use partial to pass the style_key to the handler
+        if hasattr(main_window, 'on_enhance_note_triggered'):
+            action_enhance_style.triggered.connect(partial(main_window.on_enhance_note_triggered, style=style_key))
+            # Store action reference if needed, e.g., for dynamic enabling/disabling
+            setattr(main_window, f"action_enhance_{style_key}", action_enhance_style)
+        else:
+            logger.warning(f"Method 'on_enhance_note_triggered' not found in main_window for style '{style_key}'.")
+            action_enhance_style.setEnabled(False)
+        enhance_menu.addAction(action_enhance_style)
+
+    # --- Text Generation --- #
+    action_generate_text = QAction(QIcon.fromTheme("applications-accessories"), "&Generate Text from Prompt...", main_window)
+    action_generate_text.setStatusTip("Generate new text content based on a prompt")
+    if hasattr(main_window, 'on_generate_note_text'):
+        action_generate_text.triggered.connect(main_window.on_generate_note_text)
+    else:
+        logger.warning("Method 'on_generate_note_text' not found in main_window.")
+        action_generate_text.setEnabled(False)
+    ai_menu.addAction(action_generate_text)
+    main_window.action_generate_text = action_generate_text
 
     ai_menu.addSeparator()
-    # Temporarily modify for diagnostics
-    main_window.configure_ai_services_action = QAction(QIcon.fromTheme("document-new"), "&AI Services", main_window)
-    main_window.configure_ai_services_action.setStatusTip("Configure AI services")
-    main_window.configure_ai_services_action.triggered.connect(main_window.configure_ai_services) # Revert to original slot
-    ai_menu.addAction(main_window.configure_ai_services_action)
 
+    # --- AI Services Configuration --- #
+    action_configure_ai = QAction(QIcon.fromTheme("preferences-system"), "&Configure AI Services...", main_window)
+    action_configure_ai.setStatusTip("Configure AI model settings, backends, and API keys")
+    if hasattr(main_window, 'on_configure_ai_services'):
+        action_configure_ai.triggered.connect(main_window.on_configure_ai_services)
+    else:
+        logger.warning("Method 'on_configure_ai_services' not found in main_window.")
+        action_configure_ai.setEnabled(False)
+    ai_menu.addAction(action_configure_ai)
+    main_window.action_configure_ai = action_configure_ai
+
+    # --- Model Selection (Legacy/Alternative) --- #
+    action_select_model = QAction(QIcon.fromTheme("deepbrain"), "Select &Local Model...", main_window) # Example Icon
+    action_select_model.setStatusTip("Select the local AI model for processing")
+    if hasattr(main_window, 'on_select_model'):
+        action_select_model.triggered.connect(main_window.on_select_model)
+    else:
+        logger.warning("Method 'on_select_model' not found in main_window.")
+        action_select_model.setEnabled(False)
+    # ai_menu.addAction(action_select_model) # Optionally hide if Configure AI is preferred
+    main_window.action_select_model = action_select_model
+
+    logger.debug("AI Tools menu created.")
     return ai_menu
 
 def create_view_menu(main_window, menubar):
@@ -127,43 +179,9 @@ def create_view_menu(main_window, menubar):
     #     view_menu.addAction(toggle_summary_panel_action)
     return view_menu
 
-def create_web_menu(main_window, menubar):
-    """Creates and returns the Web menu."""
-    web_menu = menubar.addMenu("&Web")
-    
-    search_web_action = QAction("&Search Web", main_window)
-    search_web_action.setShortcut("Ctrl+Alt+W")
-    search_web_action.setStatusTip("Search the web for information related to your note")
-    search_web_action.triggered.connect(main_window.on_search_web)
-    web_menu.addAction(search_web_action)
-    
-    search_selected_action = QAction("Search &Selected Text", main_window)
-    search_selected_action.setShortcut("Ctrl+Alt+F")
-    search_selected_action.setStatusTip("Search the web for the selected text")
-    search_selected_action.triggered.connect(main_window.on_search_selected)
-    web_menu.addAction(search_selected_action)
-    
-    return web_menu
-
 def create_context_menu_actions(main_window, menubar):
     """Creates and returns the Context menu (for menubar)."""
     context_menu = menubar.addMenu("&Context")
-    
-    analyze_context_action = QAction("&Analyze Context", main_window)
-    analyze_context_action.setStatusTip("Analyze note and web content to generate contextual suggestions")
-    analyze_context_action.triggered.connect(main_window.on_analyze_context)
-    context_menu.addAction(analyze_context_action)
-    
-    show_suggestions_action = QAction("Show &Suggestions", main_window)
-    show_suggestions_action.setStatusTip("Show contextual suggestions based on previous analysis")
-    show_suggestions_action.triggered.connect(main_window.on_show_suggestions)
-    context_menu.addAction(show_suggestions_action)
-    
-    context_menu.addSeparator()
-    auto_enhance_action = QAction("Auto-&Enhance Notes", main_window)
-    auto_enhance_action.setStatusTip("Automatically enhance notes with AI-generated content")
-    auto_enhance_action.triggered.connect(main_window.on_auto_enhance)
-    context_menu.addAction(auto_enhance_action)
     
     return context_menu
 
@@ -184,21 +202,24 @@ def populate_toolbar(main_window, toolbar):
     save_action.triggered.connect(main_window.file_controller.save_note)
     toolbar.addAction(save_action)
     
-    toolbar.addSeparator()
-    
-    summarize_tb_action = QAction(QIcon.fromTheme("edit-paste"), "Summarize", main_window)
-    summarize_tb_action.setStatusTip("Summarize the current note using AI")
-    summarize_tb_action.triggered.connect(main_window.on_summarize_note)
-    toolbar.addAction(summarize_tb_action)
 
-    search_tb_action = QAction(QIcon.fromTheme("system-search"), "Web Search", main_window)
-    search_tb_action.setStatusTip("Search the web for information related to the note")
-    search_tb_action.triggered.connect(main_window.on_search_web)
-    toolbar.addAction(search_tb_action)
+    if hasattr(main_window, 'action_summarize_note'): # Check correct attribute name
+        toolbar.addAction(main_window.action_summarize_note)
+    elif hasattr(main_window, 'action_summarize'):
+        toolbar.addAction(main_window.action_summarize)
 
-    toolbar.addSeparator()
+    # Add Enhance Note submenu trigger (optional, could be complex for toolbar)
+    # enhance_button = QToolButton()
+    # enhance_button.setIcon(QIcon.fromTheme("document-edit"))
+    # enhance_button.setToolTip("Enhance Note (Styles)")
+    # enhance_button.setPopupMode(QToolButton.InstantPopup)
+    # enhance_menu = QMenu()
+    # if hasattr(main_window, 'action_enhance_clarity'): enhance_menu.addAction(main_window.action_enhance_clarity)
+    # if hasattr(main_window, 'action_enhance_concise'): enhance_menu.addAction(main_window.action_enhance_concise)
+    # if hasattr(main_window, 'action_enhance_expand'): enhance_menu.addAction(main_window.action_enhance_expand)
+    # if hasattr(main_window, 'action_enhance_custom'): enhance_menu.addAction(main_window.action_enhance_custom)
+    # enhance_menu.setMenu(enhance_button)
+    # toolbar.addWidget(enhance_button)
 
-    enhance_tb_action = QAction(QIcon.fromTheme("system-run"), "Enhance Note", main_window) 
-    enhance_tb_action.setStatusTip("Automatically enhance note with AI-generated content")
-    enhance_tb_action.triggered.connect(main_window.on_auto_enhance) 
-    toolbar.addAction(enhance_tb_action)
+    if hasattr(main_window, 'action_generate_text'):
+        toolbar.addAction(main_window.action_generate_text)
