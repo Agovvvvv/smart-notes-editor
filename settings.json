@@ -29,5 +29,8 @@
         "max_links_for_qna": 3,
         "summarization_backend": "local",
         "model": "facebook/bart-large-cnn"
+    },
+    "enhancement_templates": {
+        "Improvement": "Add details to this text"
     }
 }

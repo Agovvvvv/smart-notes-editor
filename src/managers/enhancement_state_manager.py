@@ -6,6 +6,7 @@ Manages the state and data associated with the multi-step note enhancement proce
 """
 
 import logging
+from typing import Optional
 
 # Get the specific logger for this module
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ class EnhancementStateManager:
         self.feedback = None
         self.error_flag = False
         self.error_message = None
+        self.last_request_params = {} # Store params like max_tokens
         if old_state != None:
             logger.debug(f"Enhancement state reset from '{old_state}' to 'None'.")
         logger.debug("Enhancement state reset.")
@@ -128,21 +130,38 @@ class EnhancementStateManager:
         """Return the current step/state."""
         return self.current_step
 
-    def get_original_text(self) -> str:
-        """Return the original text being enhanced."""
-        # Return full text even if selection based, preview dialog needs it.
+    def get_original_note_text(self) -> Optional[str]:
+        """Returns the original text that was the basis for the enhancement."""
         return self.original_note_text
 
-    def get_selection_info(self) -> dict | None:
-         """Return the original selection info if enhancement was selection-based."""
-         return self.original_selection_info
+    def get_original_selection_info(self) -> Optional[dict]:
+        """Returns the original selection info (start, end) if any."""
+        return self.original_selection_info
 
-    def get_generated_text(self) -> str | None:
+    def get_generated_text(self) -> Optional[str]:
         """Return the latest generated enhancement text."""
         return self.generated_text
+
+    def get_last_request_params(self) -> dict:
+        """Returns the parameters used for the last AI request (e.g., max_tokens)."""
+        return self.last_request_params
+
+    def set_last_request_params(self, params: dict):
+        """Sets the parameters used for the last AI request."""
+        self.last_request_params = params
+        logger.debug(f"Last request params set: {params}")
+
+    def get_error_info(self) -> tuple[bool, Optional[str]]:
+        """Return the error status and message."""
+        return self.error_flag, self.error_message
 
     def was_selection_based(self) -> bool:
         """Check if the enhancement was initiated on a text selection."""
         return self.original_selection_info is not None
+
+    # --- Utility Methods ---
+    def is_enhancement_pending(self) -> bool:
+        """Check if an enhancement process is active."""
+        return self.current_step in ['started', 'awaiting_entities', 'entities_extracted', 'awaiting_enhancement', 'enhancement_received', 'refining']
 
 # Add more methods as needed for specific state queries or transitions.

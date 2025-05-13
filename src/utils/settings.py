@@ -54,7 +54,8 @@ class Settings:
                 "huggingface_text_generation_model_id": "gpt2",  # Default text generation model ID
                 "google_api_key": "",
                 "max_links_for_qna": 3 # Default number of links to fetch for Q&A
-            }
+            },
+            "enhancement_templates": {} 
         }
         
         # Current settings
@@ -156,6 +157,61 @@ class Settings:
         # Save the settings
         self.save_settings()
     
+    def get_enhancement_templates(self):
+        """Get all enhancement templates.
+
+        Returns:
+            dict: A dictionary of template_name: prompt_text.
+        """
+        return self.config.get("enhancement_templates", {})
+
+    def save_enhancement_template(self, template_name: str, prompt_text: str):
+        """Save or update an enhancement template.
+
+        Args:
+            template_name (str): The name of the template.
+            prompt_text (str): The prompt text for the template.
+        
+        Returns:
+            bool: True if successful, False otherwise.
+        """
+        if not template_name.strip() or not prompt_text.strip():
+            logger.warning("Attempted to save an empty template name or prompt.")
+            return False
+        try:
+            if "enhancement_templates" not in self.config:
+                self.config["enhancement_templates"] = {}
+            self.config["enhancement_templates"][template_name] = prompt_text
+            return self.save_settings()
+        except Exception as e:
+            logger.error(f"Error saving enhancement template '{template_name}': {str(e)}")
+            return False
+
+    def delete_enhancement_template(self, template_name: str):
+        """Delete an enhancement template.
+
+        Args:
+            template_name (str): The name of the template to delete.
+
+        Returns:
+            bool: True if successful, False otherwise.
+        """
+        try:
+            if "enhancement_templates" in self.config and template_name in self.config["enhancement_templates"]:
+                del self.config["enhancement_templates"][template_name]
+                return self.save_settings()
+            else:
+                logger.warning(f"Attempted to delete non-existent template: {template_name}")
+                return False # Or True if not finding it is acceptable for deletion
+        except Exception as e:
+            logger.error(f"Error deleting enhancement template '{template_name}': {str(e)}")
+            return False
+
+    def get_ai_backend_is_api(self) -> bool:
+        """Check if the currently selected AI backend is API-based."""
+        backend = self.get("ai", "backend", "local")
+        return backend in ["huggingface_api", "google_gemini"]
+
     def _deep_update(self, target, source):
         """
         Recursively update a dictionary.

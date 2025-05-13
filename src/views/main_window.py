@@ -13,10 +13,11 @@ from PyQt5.QtWidgets import (
     QMainWindow, QTextEdit, QAction, QMessageBox, 
     QStatusBar, QVBoxLayout, QWidget, QSplitter, 
     QApplication, QToolBar, QFileDialog, QDialog,
-    QInputDialog, QDockWidget, QPushButton, QHBoxLayout
+    QInputDialog, QDockWidget, QPushButton, QHBoxLayout, QLabel
 )
 from PyQt5.QtCore import Qt, QThreadPool
 from PyQt5.QtGui import QTextCursor, QIcon
+from typing import Optional, Tuple # Added Optional and Tuple
 
 # Import models
 from models.document_model import DocumentModel
@@ -35,6 +36,7 @@ from managers.enhancement_state_manager import EnhancementStateManager
 from views.dialogs.model_dialog import ModelSelectionDialog
 from views.dialogs.ai_services_dialog import AIServicesDialog
 from views.dialogs.enhancement_preview_dialog import EnhancementPreviewDialog 
+from views.dialogs.template_manager_dialog import TemplateManagerDialog
 from views.panels.summary_panel import SummaryPanel
 
 # Import UI factory
@@ -43,6 +45,8 @@ from .ui_factory import (
     create_view_menu, create_context_menu_actions,
     populate_toolbar
 )
+
+from backend.ai_utils import estimate_tokens 
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +108,11 @@ class MainWindow(QMainWindow):
         self.statusBar().setObjectName("MainStatusBar")
         self.statusBar().showMessage("Ready")
         self.progress_manager.setup_progress_bar(self.statusBar()) 
+
+        # Word count label for status bar
+        self.word_count_label = QLabel("Words: 0")
+        self.word_count_label.setObjectName("WordCountLabel")
+        self.statusBar().addPermanentWidget(self.word_count_label)
 
         self.settings_dialog = None
         self.ai_services_dialog = None
@@ -184,7 +193,7 @@ class MainWindow(QMainWindow):
 
         # Status Bar (already created by QMainWindow by default)
         self.statusBar().setObjectName("MainStatusBar")
-    
+
     #
     # AI Summarization Methods
     #
@@ -660,7 +669,7 @@ class MainWindow(QMainWindow):
         modified_indicator = "*" if self.document_model.unsaved_changes else ""
         
         self.setWindowTitle(f"{file_name}{modified_indicator} - {base_app_title}")
-        logger.debug(f"Window title updated to: {file_name}{modified_indicator} - {base_app_title}")
+        # logger.debug(f"Window title updated to: {file_name}{modified_indicator} - {base_app_title}")
 
     def enhance_current_note_with_ai(self):
         """Enhances the current note using AI directly for text generation."""
@@ -719,24 +728,37 @@ class MainWindow(QMainWindow):
             style_modifier = " Make the text more concise while retaining the core meaning."
         elif style == "expand":
             style_modifier = " Expand on the details and provide more context or information."
-        elif style == "custom":
+        elif style == "custom" or style == "template": # Modified to include 'template'
             if custom_prompt_text:
-                # Use the user's custom prompt directly as the instruction
+                # Use the user's custom prompt (or template prompt) directly as the instruction
                 base_instruction = custom_prompt_text
                 style_modifier = ""
-                logger.info("Using custom enhancement prompt.")
+                logger.info(f"Using custom/template enhancement prompt: {style}")
             else:
                 # Fallback if custom prompt was somehow empty (should be caught earlier)
-                logger.warning("Custom enhancement style selected but no prompt provided. Using default.")
+                logger.warning(f"{style.capitalize()} enhancement style selected but no prompt provided. Using default.")
                 style_modifier = " Add relevant information, insights, and details."
         else: 
              style_modifier = " Add relevant information, insights, and details."
 
-        prompt = f"{base_instruction}{style_modifier}\n\nOriginal text:\n---\n{text_to_enhance}\n---"
+        # Ensure the original text is part of the prompt structure for custom/template prompts
+        if style == "custom" or style == "template":
+            # Check if original text placeholder is already in the custom_prompt_text
+            # A simple heuristic: if 'original text' (case-insensitive) is present, assume user included it.
+            # Otherwise, append it.
+            if custom_prompt_text and "original text" not in custom_prompt_text.lower() and "{text_to_enhance}" not in custom_prompt_text:
+                prompt = f"{base_instruction}\n\nOriginal text:\n---\n{text_to_enhance}\n---"
+            else:
+                # If placeholder like {text_to_enhance} is used, replace it.
+                # Otherwise, assume the custom_prompt_text is complete as is.
+                prompt = custom_prompt_text.replace("{text_to_enhance}", text_to_enhance)
+        else:
+            prompt = f"{base_instruction}{style_modifier}\n\nOriginal text:\n---\n{text_to_enhance}\n---"
+        
         logger.debug(f"Constructed enhancement prompt (style: {style}) - First 100 chars: {prompt[:100]}...")
         return prompt
 
-    def on_enhance_note_triggered(self, style: str):
+    def on_enhance_note_triggered(self, style: str, custom_prompt_from_template: str = None):
         """Handles the 'Enhance Note' action trigger for different styles."""
         logger.info(f"Enhance Note triggered with style: {style}")
 
@@ -771,6 +793,16 @@ class MainWindow(QMainWindow):
                 logger.info("Custom enhancement cancelled by user or empty prompt.")
                 self.enhancement_state_manager.reset() # Reset if custom prompt is cancelled
                 return 
+        elif style == "template":
+            if custom_prompt_from_template:
+                custom_prompt_input = custom_prompt_from_template
+                logger.info("Using prompt from selected template.")
+            else:
+                # This case should ideally not be reached if on_enhance_from_template_triggered handles it
+                logger.error("Template style chosen but no prompt provided from template selection.")
+                QMessageBox.critical(self, "Template Error", "No prompt was provided from the selected template.")
+                self.enhancement_state_manager.reset()
+                return
 
         # 4. Construct the Prompt using the helper method
         prompt = self._get_enhancement_prompt(style, text_for_prompt_generation, custom_prompt_input)
@@ -861,41 +893,80 @@ class MainWindow(QMainWindow):
 
         logger.debug("Summary dock widget setup complete.")
 
+    def _get_token_estimates_for_preview(self, current_text: Optional[str]) -> tuple[Optional[int], Optional[int]]:
+        """Helper to get token estimates for the preview dialog."""
+        if not self.app_settings.get_ai_backend_is_api():
+            return None, None
+
+        estimated_input_tokens = None
+        max_output_tokens = None
+
+        if current_text:
+            estimated_input_tokens = estimate_tokens(current_text)
+
+        # Try to get max_output_tokens from the parameters of the last AI request
+        last_request_params = self.enhancement_state_manager.get_last_request_params()
+        if last_request_params:
+            # 'max_new_tokens' is commonly used for generation tasks (see memory 3682c2ef...)
+            if 'max_new_tokens' in last_request_params:
+                max_output_tokens = last_request_params['max_new_tokens']
+            elif 'max_output_tokens' in last_request_params: # Fallback for different naming
+                max_output_tokens = last_request_params['max_output_tokens']
+            # Add other potential keys if necessary
+
+        # If not found in params, use general defaults as a last resort
+        if max_output_tokens is None:
+            logger.warning("Max output tokens not found in last request params, using general defaults.")
+            backend_name = self.app_settings.get("ai", "backend")
+            if backend_name == "google_gemini":
+                max_output_tokens = 2048 # Default for Gemini (from memory 3682c2ef...)
+            elif backend_name == "huggingface_api":
+                max_output_tokens = 1024 # General placeholder
+            else:
+                # For local or unknown, maybe no explicit max output token concept for preview
+                pass 
+
+        return estimated_input_tokens, max_output_tokens
+
     def _show_enhancement_preview_dialog(self):
-        """Creates, configures, and shows the EnhancementPreviewDialog."""
-        logger.debug("Entered _show_enhancement_preview_dialog method.") # ADDED LOG
-        if self.enhancement_state_manager.get_state() != 'enhancement_received':
-            logger.error("Attempted to show preview dialog in unexpected state: %s", self.enhancement_state_manager.get_state())
+        """Shows the dialog for previewing, accepting, or refining the AI enhancement."""
+        logger.info("Showing enhancement preview dialog.")
+        if self.enhancement_state_manager.get_generated_text() is None: # CORRECTED METHOD
+            logger.warning("No enhanced text available to preview.")
+            QMessageBox.information(self, "No Enhancement", "No enhancement was generated or is available for preview.")
             return
 
-        generated_text = self.enhancement_state_manager.get_generated_text()
-        original_full_text = self.enhancement_state_manager.get_original_text() # Get full text for context
-        logger.debug("Retrieved generated and original text for dialog.") # ADDED LOG
+        current_text = self.enhancement_state_manager.get_original_note_text() # CORRECTED METHOD
+        enhanced_text = self.enhancement_state_manager.get_generated_text()
 
-        # Check if dialog already exists (e.g., from iterative refinement)
-        # We should ideally pass the state manager to the dialog or manage dialog instance here
-        # For simplicity now, let's assume we create a new one each time initially
-        # A better approach would be to update an existing dialog if self._current_enhancement_dialog exists
+        estimated_input_tokens, max_output_tokens = self._get_token_estimates_for_preview(current_text)
 
-        logger.info("Creating EnhancementPreviewDialog instance.") # ADDED LOG (moved slightly)
-        dialog = EnhancementPreviewDialog(generated_text, original_full_text, self)
-        logger.debug("EnhancementPreviewDialog instance created.") # ADDED LOG
+        logger.debug(f"Preview Dialog - Input Tokens: {estimated_input_tokens}, Max Output: {max_output_tokens}")
+
+        dialog = EnhancementPreviewDialog(enhanced_text=enhanced_text, 
+                                          original_text=current_text, 
+                                          estimated_input_tokens=estimated_input_tokens,
+                                          max_output_tokens=max_output_tokens,
+                                          parent=self)
 
         # Connect signals FROM the dialog
-        dialog.accepted.connect(self._handle_enhancement_acceptance)
-        dialog.rejected.connect(self._handle_enhancement_rejection)
-        dialog.regenerate_requested.connect(self._on_enhancement_regenerate_requested) # Connect regeneration
-        logger.debug("Connected dialog signals.") # ADDED LOG
+        dialog.regenerate_requested.connect(self._on_enhancement_regenerate_requested)
+        dialog.accepted.connect(self._handle_enhancement_acceptance) # Standard QDialog signal
+        dialog.rejected.connect(self._handle_enhancement_rejection)  # Standard QDialog signal
+        logger.debug("Connected dialog signals.")
 
-        logger.info("Executing dialog.exec_() to show modal dialog.") # ADDED LOG
-        dialog.exec_() # Show the dialog modally
-        logger.info("dialog.exec_() finished.") # ADDED LOG
+        # No need to call dialog.exec() here, it's handled by how it's shown later
+        # or if the calling context expects a modal dialog, that would be `dialog.exec_()`
+        # For now, assuming it's shown non-modally or exec_ is called elsewhere.
+        # Typically, we'd call dialog.exec_() if we need to block until user interacts.
 
-        # Dialog closed - signals handle acceptance/rejection/regeneration
-        # Reset state manager ONLY if not regenerating
-        if self.enhancement_state_manager.get_state() not in ['refining', 'awaiting_enhancement']:
-            logger.debug("Resetting enhancement state after dialog close (not regenerating).")
-            self.enhancement_state_manager.reset()
+        if dialog.exec_() == QDialog.Accepted:
+            logger.info("Enhancement accepted by user via Preview Dialog's OK button.")
+            # The _handle_enhancement_acceptance slot should have already done the work.
+        else:
+            logger.info("Enhancement rejected or dialog closed by user via Preview Dialog's Cancel/Close button.")
+            # The _handle_enhancement_rejection slot should have already done the work.
+            # (or self.enhancement_state_manager.reset() if not explicitly handled by rejection)
 
     def _handle_enhancement_acceptance(self):
         """Handles the acceptance action from the EnhancementPreviewDialog."""
@@ -911,7 +982,7 @@ class MainWindow(QMainWindow):
             return
 
         accepted_text = self.enhancement_state_manager.get_generated_text() # Get text before state change
-        selection_info = self.enhancement_state_manager.get_selection_info()
+        selection_info = self.enhancement_state_manager.get_original_selection_info() # CORRECTED METHOD
 
         self.enhancement_state_manager.enhancement_accepted() # Update state
 
@@ -944,23 +1015,167 @@ class MainWindow(QMainWindow):
     def _on_enhancement_regenerate_requested(self):
         """Handles the request to regenerate an enhancement from the preview dialog."""
         logger.info("Enhancement regeneration requested by user.")
-        # TODO: Implement regeneration logic:
-        # 1. Get original text, style, potentially existing prompt from state manager
-        # 2. Maybe ask for a new/modified prompt or instruction
-        # 3. Set state manager to 'awaiting_enhancement' or a new 'awaiting_regeneration' state
-        # 4. Call self.ai_controller.request_text_generation with the appropriate prompt
-        self.statusBar().showMessage("Regeneration feature not yet fully implemented.", 3000)
-        # For now, just reset the state to allow trying again from scratch
-        # current_dialog = self.findChild(EnhancementPreviewDialog) # Close existing dialog if any
-        # if current_dialog:
-        #     current_dialog.reject() # or accept() depending on desired flow
-        self.enhancement_state_manager.reset()
-        QMessageBox.information(self, "Regenerate", "Regeneration feature is under development.")
+
+        # Close the current dialog that emitted the signal
+        dialog_instance = self.sender()
+        if dialog_instance and isinstance(dialog_instance, QDialog):
+            logger.debug("Closing current enhancement preview dialog before regeneration.")
+            dialog_instance.accept() # Or done(QDialog.Accepted) - just closes it
+
+        if not self.enhancement_state_manager.is_active() or self.enhancement_state_manager.get_state() != 'enhancement_received':
+            logger.warning("Regeneration requested but state is not 'enhancement_received' or not active. Resetting.")
+            self.enhancement_state_manager.reset()
+            QMessageBox.warning(self, "Regeneration Error", "Cannot regenerate at this moment. Please try starting the enhancement again.")
+            return
+
+        original_prompt = self.enhancement_state_manager.enhancement_prompt
+        if not original_prompt:
+            logger.error("Cannot regenerate: Original prompt not found in state manager.")
+            self.enhancement_state_manager.enhancement_error("Original prompt missing for regeneration.")
+            QMessageBox.critical(self, NOTE_ENHANCEMENT_ERROR_TITLE, "Could not regenerate: original prompt is missing.")
+            return
+
+        logger.info("Proceeding with regeneration using the original prompt.")
+        self.enhancement_state_manager.generating_enhancement(original_prompt) # Reset to awaiting_enhancement with same prompt
+
+        try:
+            max_tokens_setting = self.app_settings.get('AI', 'max_new_tokens_generation', 2048)
+            try:
+                max_tokens = int(max_tokens_setting)
+            except (ValueError, TypeError):
+                logger.warning(f"Invalid value '{max_tokens_setting}' for max_new_tokens_generation. Using default 2048.")
+                max_tokens = 2048
+
+            self.ai_controller.request_text_generation(original_prompt, max_new_tokens=max_tokens)
+            self.statusBar().showMessage("Regenerating enhancement...", 3000)
+            self.progress_manager.start_operation_with_message("Regenerating AI enhancement...")
+        except Exception as e:
+            logger.error(f"Error triggering note regeneration: {e}", exc_info=True)
+            QMessageBox.critical(self, NOTE_ENHANCEMENT_ERROR_TITLE, f"Could not start regeneration: {e}")
+            self.enhancement_state_manager.enhancement_error(f"Failed to trigger AI for regeneration: {e}")
+            self.progress_manager.hide_progress()
+
+    def _on_enhancement_refine_requested(self):
+        """Handles the request to refine an enhancement from the preview dialog."""
+        logger.info("Enhancement refinement requested by user.")
+
+        # Close the current dialog that emitted the signal
+        dialog_instance = self.sender()
+        if dialog_instance and isinstance(dialog_instance, QDialog):
+            logger.debug("Closing current enhancement preview dialog before refinement.")
+            dialog_instance.accept() # Or done(QDialog.Accepted) - just closes it
+
+        if not self.enhancement_state_manager.is_active() or self.enhancement_state_manager.get_state() != 'enhancement_received':
+            logger.warning("Refinement requested but state is not 'enhancement_received' or not active. Resetting.")
+            self.enhancement_state_manager.reset()
+            QMessageBox.warning(self, "Refinement Error", "Cannot refine at this moment. Please try starting the enhancement again.")
+            return
+
+        current_generated_text = self.enhancement_state_manager.get_generated_text()
+        original_note_context = self.enhancement_state_manager.get_original_note_text() # Full original text for context
+        # Original prompt that led to current_generated_text could also be useful context for the AI
+        # prev_prompt = self.enhancement_state_manager.enhancement_prompt 
+
+        if not current_generated_text:
+            logger.error("Cannot refine: current generated text not found in state manager.")
+            self.enhancement_state_manager.enhancement_error("Current generated text missing for refinement.")
+            QMessageBox.critical(self, NOTE_ENHANCEMENT_ERROR_TITLE, "Could not refine: current text is missing.")
+            return
+
+        refinement_instructions, ok = QInputDialog.getText(
+            self, 
+            "Refine Enhancement", 
+            "Provide instructions to refine the current enhancement:",
+            QLineEdit.Normal,
+            "e.g., Make it more formal, focus on the historical aspects, expand on the third point."
+        )
+
+        if ok and refinement_instructions:
+            logger.info(f"User provided refinement instructions: '{refinement_instructions[:70]}...'" )
+            
+            # Construct a new prompt for refinement
+            # Including original_note_context helps AI remember what the base was.
+            # Including current_generated_text shows what it's starting from for this step.
+            refinement_prompt = (
+                f"You are refining a previously AI-generated text. Please consider the original context, "
+                f"the text generated so far, and the user's specific instructions for this refinement pass.\n\n"
+                f"## Original Full Note Context:\n---\n{original_note_context}\n---\n\n"
+                f"## AI-Generated Text to Refine:\n---\n{current_generated_text}\n---\n\n"
+                f"## User's Refinement Instructions:\n---\n{refinement_instructions}\n---\n\n"
+                f"Based on all the above, please provide ONLY the new, fully refined version of the 'AI-Generated Text to Refine'."
+            )
+            
+            self.enhancement_state_manager.start_refinement(feedback=refinement_instructions)
+            self.enhancement_state_manager.generating_enhancement(prompt=refinement_prompt)
+
+            try:
+                max_tokens_setting = self.app_settings.get('AI', 'max_new_tokens_generation', 2048) # Default to a higher value for generation
+                try:
+                    max_tokens = int(max_tokens_setting)
+                except (ValueError, TypeError):
+                    logger.warning(f"Invalid value '{max_tokens_setting}' for max_new_tokens_generation. Using default 2048.")
+                    max_tokens = 2048
+
+                self.ai_controller.request_text_generation(refinement_prompt, max_new_tokens=max_tokens)
+                self.statusBar().showMessage("Refining enhancement...", 3000)
+                self.progress_manager.start_operation_with_message("Refining AI enhancement based on your feedback...")
+            except Exception as e:
+                logger.error(f"Error triggering note refinement: {e}", exc_info=True)
+                QMessageBox.critical(self, NOTE_ENHANCEMENT_ERROR_TITLE, f"Could not start refinement: {e}")
+                self.enhancement_state_manager.enhancement_error(f"Failed to trigger AI for refinement: {e}")
+                self.progress_manager.hide_progress()
+        else:
+            logger.info("Refinement cancelled by user or empty instructions. Resetting state.")
+            self.enhancement_state_manager.reset() # Reset if user cancels refinement input
+            self.statusBar().showMessage("Refinement cancelled.", 3000)
+
+    def on_manage_enhancement_templates(self):
+        """Open the dialog to manage enhancement templates."""
+        logger.info("Opening enhancement template manager dialog.")
+        try:
+            # Pass the app_settings instance to the dialog
+            dialog = TemplateManagerDialog(settings=self.app_settings, parent=self)
+            dialog.exec_() # Show the dialog modally
+            # No specific action needed after close, dialog handles its own saves
+        except Exception as e:
+            logger.error(f"Error opening template manager dialog: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Could not open template manager: {e}")
+
+    def on_enhance_from_template_triggered(self):
+        """Trigger enhancement using a user-selected saved template."""
+        logger.info("Enhance from template triggered.")
+        templates = self.app_settings.get_enhancement_templates()
+
+        if not templates:
+            QMessageBox.information(self, "No Templates", 
+                                  "You don't have any saved enhancement templates yet. "
+                                  "Please create some via 'AI Tools' -> 'Manage Enhancement Templates...'")
+            return
+
+        template_names = list(templates.keys())
+        chosen_template_name, ok = QInputDialog.getItem(self, "Select Enhancement Template", 
+                                                      "Choose a template:", template_names, 0, False)
+
+        if ok and chosen_template_name:
+            chosen_prompt = templates.get(chosen_template_name)
+            if chosen_prompt:
+                logger.info(f"User selected template: '{chosen_template_name}'")
+                # Call the main enhancement trigger with 'template' style and the chosen prompt
+                self.on_enhance_note_triggered(style="template", custom_prompt_from_template=chosen_prompt)
+            else:
+                # Should not happen if templates dict is consistent
+                logger.error(f"Selected template '{chosen_template_name}' has no prompt. This is unexpected.")
+                QMessageBox.critical(self, "Template Error", f"The selected template '{chosen_template_name}' is empty or corrupted.")
+        else:
+            logger.info("Template selection cancelled by user.")
 
     def on_configure_ai_services(self):
-        """Placeholder for AI services configuration dialog."""
-        logger.info("AI Services configuration action triggered (not implemented yet).")
-        QMessageBox.information(self, "AI Services", "AI Services configuration is not yet implemented.")
+        """Opens the AI Services configuration dialog."""
+        logger.info("AI Services configuration action triggered.")
+        # Pass the main app_settings instance (Settings class) to the dialog
+        dialog = AIServicesDialog(self.app_settings, self)
+        dialog.exec_() # Show the dialog modally
+        logger.info("AI Services configuration dialog closed.")
 
     # --- End General Helper Methods ---
 
@@ -1002,7 +1217,7 @@ class MainWindow(QMainWindow):
         # This method is called whenever the text in the editor changes.
         # logger.debug("Text changed") 
         self.document_model.set_content(self.text_edit.toPlainText()) 
-        # self._update_status_bar_word_count() # TODO: Implement word count if needed
+        self._update_status_bar_word_count() # Update word count on text change
         # Potentially update UI elements, e.g., enable save action
         if hasattr(self, 'action_save') and self.action_save:
              self.action_save.setEnabled(self.document_model.unsaved_changes) 
@@ -1022,8 +1237,17 @@ class MainWindow(QMainWindow):
 
     def _update_status_bar_word_count(self):
         """Update the word count in the status bar."""
-        # TODO: Implement word count logic if desired
-        pass
+        current_text = self.text_edit.toPlainText()
+        if not current_text.strip(): # Handle empty or whitespace-only text
+            word_count = 0
+        else:
+            words = current_text.split() # Simple split by whitespace
+            word_count = len(words)
+        
+        if hasattr(self, 'word_count_label'): # Ensure label exists
+            self.word_count_label.setText(f"Words: {word_count}")
+        else:
+            logger.warning("Word count label not initialized in status bar.")
 
     def _update_contextual_actions(self):
         """Placeholder: Update contextual actions based on editor state (e.g., selection)."""

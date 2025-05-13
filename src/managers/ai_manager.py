@@ -290,6 +290,20 @@ class AIManager(QObject):
         """Helper to create, configure, and run AI workers."""
         backend = config.get("backend", "local")
 
+        # Store request parameters (like max_new_tokens) in the state manager
+        # The AIController (self.parent) should have the state_manager
+        if hasattr(self.parent, 'state_manager') and self.parent.state_manager:
+            # We are interested in storing parameters relevant to token limits, etc.
+            # For now, let's store all kwargs. We can refine this later if needed.
+            params_to_store = kwargs.copy()
+            # Add other relevant config if not in kwargs and needed for token display?
+            # For example, model_id might be useful if different models have different typical outputs.
+            # params_to_store['backend_model_id'] = config.get(f"{backend}_model_id_for_{task_type}", "default") 
+            self.parent.state_manager.set_last_request_params(params_to_store)
+            logger.debug(f"Stored last request params in state_manager: {params_to_store}")
+        else:
+            logger.warning("Could not store last request params: state_manager not found on parent AIController.")
+
         # Determine signal handlers and error function based on task type
         if task_type == "summarization":
             signal_handlers = {

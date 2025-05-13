@@ -130,6 +130,18 @@ def create_ai_tools_menu(main_window, menubar):
             action_enhance_style.setEnabled(False)
         enhance_menu.addAction(action_enhance_style)
 
+    action_enhance_from_template = QAction(QIcon.fromTheme("view-list-text"), "From Saved &Template...", main_window) # Example Icon
+    action_enhance_from_template.setStatusTip("Enhance text using a saved template")
+    if hasattr(main_window, 'on_enhance_from_template_triggered'):
+        action_enhance_from_template.triggered.connect(main_window.on_enhance_from_template_triggered)
+    else:
+        logger.warning("Method 'on_enhance_from_template_triggered' not found in main_window.")
+        action_enhance_from_template.setEnabled(False)
+    enhance_menu.addAction(action_enhance_from_template)
+    main_window.action_enhance_from_template = action_enhance_from_template
+
+    enhance_menu.addSeparator()
+
     # --- Text Generation --- #
     action_generate_text = QAction(QIcon.fromTheme("applications-accessories"), "&Generate Text from Prompt...", main_window)
     action_generate_text.setStatusTip("Generate new text content based on a prompt")
@@ -143,8 +155,19 @@ def create_ai_tools_menu(main_window, menubar):
 
     ai_menu.addSeparator()
 
+    # --- Enhancement Templates --- #
+    action_manage_templates = QAction(QIcon.fromTheme("document-properties"), "Manage Enhancement &Templates...", main_window)
+    action_manage_templates.setStatusTip("Create, edit, or delete custom enhancement templates")
+    if hasattr(main_window, 'on_manage_enhancement_templates'):
+        action_manage_templates.triggered.connect(main_window.on_manage_enhancement_templates)
+    else:
+        logger.warning("Method 'on_manage_enhancement_templates' not found in main_window.")
+        action_manage_templates.setEnabled(False)
+    ai_menu.addAction(action_manage_templates)
+    main_window.action_manage_templates = action_manage_templates
+
     # --- AI Services Configuration --- #
-    action_configure_ai = QAction(QIcon.fromTheme("preferences-system"), "&Configure AI Services...", main_window)
+    action_configure_ai = QAction(QIcon.fromTheme("preferences-system"), "&AI Services", main_window)
     action_configure_ai.setStatusTip("Configure AI model settings, backends, and API keys")
     if hasattr(main_window, 'on_configure_ai_services'):
         action_configure_ai.triggered.connect(main_window.on_configure_ai_services)

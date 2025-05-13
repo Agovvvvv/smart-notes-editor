@@ -10,6 +10,7 @@ import logging
 import os
 import time
 from typing import Dict, List, Optional, Tuple, Union
+import math
 
 import requests
 import json
@@ -553,6 +554,58 @@ def extract_keywords_spacy(text: str, num_keywords: int = 5) -> List[str]:
         # Return empty list as per contract, error already logged
     
     return keywords
+
+def get_keywords_for_summarization(text: str, top_n: int = 5) -> List[str]:
+    """
+    Extract keywords from the given text for summarization purposes.
+
+    Args:
+        text (str): The text to extract keywords from.
+        top_n (int, optional): The number of top keywords to return. Defaults to 5.
+
+    Returns:
+        List[str]: A list of top keywords extracted from the text.
+    """
+    if not text or not isinstance(text, str):
+        return []
+
+    try:
+        # Basic keyword extraction (e.g., using a simple approach like TF-IDF or Rake)
+        # For simplicity, we'll use a placeholder. Replace with a real implementation.
+        # Example: Use NLTK or spaCy for more robust keyword extraction.
+        logger.debug("Attempting keyword extraction...")
+        # This is a placeholder - a more robust method should be used for actual keyword extraction
+        # For example, using NLTK's RAKE or spaCy's capabilities
+
+        # Simple split and filter for demonstration
+        words = text.lower().split()
+        # Filter out common stop words (very basic list)
+        stop_words = set(["the", "a", "is", "in", "on", "and", "to", "of", "it", "for", "with"])
+        keywords = [word for word in words if word.isalnum() and word not in stop_words and len(word) > 2]
+        
+        # Get top N keywords (e.g., top 5)
+        from collections import Counter
+        keyword_counts = Counter(keywords)
+        top_keywords = [kw for kw, count in keyword_counts.most_common(top_n)]
+        
+        logger.debug("Raw keywords extracted: " + str(keywords[:20]))
+        logger.debug("Top " + str(top_n) + " keywords: " + str(top_keywords))
+        return top_keywords
+
+    except Exception as e:
+        logger.error("Error in keyword extraction: " + str(e), exc_info=True)
+        return []
+
+# Constants for token estimation (very rough)
+# Average characters per token can vary greatly by model and language.
+# 4 is a common general heuristic for English.
+CHARS_PER_TOKEN_ESTIMATE = 4 
+
+def estimate_tokens(text: str) -> int:
+    """Provides a very rough estimation of token count based on character length."""
+    if not text:
+        return 0
+    return math.ceil(len(text) / CHARS_PER_TOKEN_ESTIMATE)
 
 # Ensure the logger used in this module has handlers configured if run standalone
 # This is more for testing/running this file directly if needed

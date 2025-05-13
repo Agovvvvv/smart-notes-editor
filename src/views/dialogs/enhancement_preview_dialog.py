@@ -18,13 +18,15 @@ class EnhancementPreviewDialog(QDialog):
     # Args: original_text (str), current_enhanced_text (str), feedback (str)
     regenerate_requested = pyqtSignal(str, str, str)
 
-    def __init__(self, enhanced_text, original_text="", parent=None):
+    def __init__(self, enhanced_text, original_text="", estimated_input_tokens=None, max_output_tokens=None, parent=None):
         """
         Initialize the dialog.
 
         Args:
             enhanced_text (str): The initial AI-generated enhanced text.
             original_text (str): The original text for comparison and regeneration.
+            estimated_input_tokens (int, optional): Estimated input tokens. Defaults to None.
+            max_output_tokens (int, optional): Maximum output tokens. Defaults to None.
             parent (QWidget, optional): The parent widget. Defaults to None.
         """
         super().__init__(parent)
@@ -32,6 +34,8 @@ class EnhancementPreviewDialog(QDialog):
         self.setWindowTitle("Enhancement Preview - Enhanced Text")
         self._enhanced_text = enhanced_text
         self._original_text = original_text # Store original text
+        self._estimated_input_tokens = estimated_input_tokens
+        self._max_output_tokens = max_output_tokens
 
         layout = QVBoxLayout()
 
@@ -52,6 +56,23 @@ class EnhancementPreviewDialog(QDialog):
         self._generate_and_set_diff_html()
         logger.debug("Returned from _generate_and_set_diff_html inside __init__.") # ADDED LOG
         self.stacked_widget.addWidget(self.diff_browser)
+
+        # --- Token Information Layout (conditionally displayed)
+        self.token_info_layout = QHBoxLayout()
+        self.input_tokens_label = QLabel("")
+        self.output_tokens_label = QLabel("")
+        self.token_info_layout.addWidget(self.input_tokens_label)
+        self.token_info_layout.addStretch()
+        self.token_info_layout.addWidget(self.output_tokens_label)
+        
+        if self._estimated_input_tokens is not None and self._max_output_tokens is not None:
+            self.input_tokens_label.setText(f"Estimated Input Tokens: {self._estimated_input_tokens}")
+            self.output_tokens_label.setText(f"Max Output Tokens: {self._max_output_tokens}")
+        else:
+            self.input_tokens_label.setVisible(False)
+            self.output_tokens_label.setVisible(False)
+
+        layout.addLayout(self.token_info_layout) # Add token info layout
 
         # --- Toggle Button ---
         self.toggle_button = QPushButton("Show Differences")

@@ -1,10 +1,3 @@
-7.  **Template-Based Enhancement:**
-    *   **Description:** Allow users to create and save reusable enhancement "templates" or custom prompts. For example, a template to "Convert bullet points in the selection to a narrative paragraph" or "Identify action items in the text".
-    *   **Implementation:**
-        *   UI: Add a new dialog (`TemplateManagerDialog`) accessible from the 'Enhance' menu or settings. This dialog should allow creating, naming, editing, and deleting templates (prompts).
-        *   Storage: Store templates in `settings.json` under a new section (e.g., `enhancement_templates`) or a separate dedicated file (e.g., `templates.json`). Update the `Settings` class in `src/utils/settings.py` accordingly.
-        *   Integration: Modify the enhancement initiation process (e.g., add a dropdown in an `EnhancementOptionsDialog` or add a button to choose a template) to allow selecting a saved template. The selected template's prompt would then be used instead of the default enhancement prompt.
-
 8.  **Enhanced Contextual Awareness (Structure):**
     *   **Description:** Improve the AI's ability to understand the note's structure (headings, lists, paragraphs) when enhancing. For example, ensuring enhancements maintain list formatting or are relevant to the specific section they modify.
     *   **Implementation:**
