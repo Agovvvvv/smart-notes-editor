@@ -6,7 +6,7 @@ Manages the state and data associated with the multi-step note enhancement proce
 """
 
 import logging
-from typing import Optional
+from typing import Optional, Tuple
 
 # Get the specific logger for this module
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ class EnhancementStateManager:
         self.last_request_params = {} # Store params like max_tokens
         if old_state != None:
             logger.debug(f"Enhancement state reset from '{old_state}' to 'None'.")
-        logger.debug("Enhancement state reset.")
+        logger.info("Enhancement state fully reset.")
 
     # --- State Transitions ---
 
@@ -163,5 +163,85 @@ class EnhancementStateManager:
     def is_enhancement_pending(self) -> bool:
         """Check if an enhancement process is active."""
         return self.current_step in ['started', 'awaiting_entities', 'entities_extracted', 'awaiting_enhancement', 'enhancement_received', 'refining']
+
+    # --- Prompt Generation Logic (moved from MainWindow) ---
+
+    def _build_standard_style_prompt(self, style: str, text_to_enhance: str, structural_instruction: str, base_instruction_text: str) -> str:
+        """Builds prompt for standard enhancement styles."""
+        style_modifier = ""
+        if style == "clarity":
+            style_modifier = " Focus on improving clarity and readability."
+        elif style == "concise":
+            style_modifier = " Make the text more concise while retaining the core meaning."
+        elif style == "expand":
+            style_modifier = " Expand on the details and provide more context or information."
+        else: 
+            logger.debug(f"Unknown or default enhancement style '{style}' requested. Applying general enhancement.")
+            style_modifier = " Add relevant information, insights, and details."
+
+        full_instruction = f"{base_instruction_text}{style_modifier}"
+        prompt = f"{full_instruction.strip()}\n\n{structural_instruction}\n\nOriginal text:\n---\n{text_to_enhance}\n---"
+        return prompt
+
+    def _build_custom_template_prompt(self, style: str, custom_prompt_text: Optional[str], text_to_enhance: str, structural_instruction: str, base_instruction_text: str) -> str:
+        """Builds prompt for custom or template-based enhancement styles."""
+        if custom_prompt_text:
+            user_main_instruction = custom_prompt_text.strip()
+            
+            if "{text_to_enhance}" in user_main_instruction:
+                prompt_body = user_main_instruction.replace("{text_to_enhance}", text_to_enhance)
+                if not any(keyword in prompt_body.lower() for keyword in ["maintain formatting", "preserve structure", "markdown format"]):
+                    prompt = f"{prompt_body}\n\n{structural_instruction}"
+                else:
+                    prompt = prompt_body
+            else: # User provides a general instruction.
+                prompt_prefix = user_main_instruction
+                if not any(keyword in prompt_prefix.lower() for keyword in ["maintain formatting", "preserve structure", "markdown format"]):
+                    prompt_prefix = f"{user_main_instruction}\n\n{structural_instruction}"
+                prompt = f"{prompt_prefix}\n\nOriginal text:\n---\n{text_to_enhance}\n---"
+            logger.info(f"Using custom/template enhancement prompt (style: {style})")
+        else: # Fallback for empty custom_prompt_text when style is custom/template
+            logger.warning(f"{style.capitalize()} style selected but no custom prompt provided. Using default enhancement logic.")
+            style_modifier = " Add relevant information, insights, and details." # Default enhancement
+            full_instruction = f"{base_instruction_text}{style_modifier}"
+            prompt = f"{full_instruction.strip()}\n\n{structural_instruction}\n\nOriginal text:\n---\n{text_to_enhance}\n---"
+        return prompt
+
+    def get_enhancement_prompt(self, style: str, text_to_enhance: str, custom_prompt_text: str = None) -> str:
+        """Constructs the prompt for the AI based on the enhancement style."""
+        base_instruction_text = "Please enhance the following text."
+        
+        if style == "simple_enhance_plaintext":
+            # For plaintext, we don't want complex structural instructions about markdown.
+            simple_instruction = "Focus on enhancing the content, clarity, and flow. The output should be plain text."
+            prompt = f"{base_instruction_text}\n{simple_instruction}\n\nOriginal text:\n---\n{text_to_enhance}\n---"
+        elif style == "custom" or style == "template":
+            # Define structural_instruction only where it's needed and used
+            structural_instruction = (
+                "Important guidance for enhancement: "
+                "Maintain the original markdown formatting (e.g., headings #, lists *, -, 1., blockquotes >, code blocks ```). "
+                "Integrate new content and modifications smoothly within the existing structure of the provided text. "
+                "If enhancing a list, ensure the list format is preserved. If enhancing a paragraph within a section, "
+                "keep the changes relevant to that paragraph's context."
+            )
+            prompt = self._build_custom_template_prompt(
+                style, custom_prompt_text, text_to_enhance, structural_instruction, base_instruction_text
+            )
+        else: # For other standard styles (clarity, concise, expand, or default)
+            # Define structural_instruction only where it's needed and used
+            structural_instruction = (
+                "Important guidance for enhancement: "
+                "Maintain the original markdown formatting (e.g., headings #, lists *, -, 1., blockquotes >, code blocks ```). "
+                "Integrate new content and modifications smoothly within the existing structure of the provided text. "
+                "If enhancing a list, ensure the list format is preserved. If enhancing a paragraph within a section, "
+                "keep the changes relevant to that paragraph's context."
+            )
+            prompt = self._build_standard_style_prompt(
+                style, text_to_enhance, structural_instruction, base_instruction_text
+            )
+        
+        self.enhancement_prompt = prompt # Store the generated prompt
+        logger.debug(f"Constructed enhancement prompt (style: {style}) - First 100 chars: {prompt[:100]}...")
+        return prompt
 
 # Add more methods as needed for specific state queries or transitions.

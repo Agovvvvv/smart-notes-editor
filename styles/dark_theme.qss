@@ -1,148 +1,566 @@
-/* Dark Theme for Smart Contextual Notes Editor */
+/* styles/dark_theme.qss */
 
-/* Main application window */
+/*
+ * =========================================================================
+ * DARK THEME STYLES
+ * Imports and uses variables defined in base_variables.qss (conceptually).
+ * =========================================================================
+ */
+
+/* ================================= GLOBAL DEFAULTS ================================= */
+QWidget {
+    background-color: qproperty-bgColorBase;
+    color: qproperty-textColorPrimary;
+    font-family: qproperty-fontFamilyPrimary;
+    font-size: qproperty-fontSizeBase;
+    border: none; /* Remove default borders */
+}
+
 QMainWindow {
-    background-color: #2D2D30;
-    color: #FFFFFF;
+    background-color: qproperty-bgColorBase;
 }
 
-/* Menu bar */
-QMenuBar {
-    background-color: #1E1E1E;
-    color: #FFFFFF;
+QToolTip {
+    background-color: qproperty-bgColorOffsetAlt;
+    color: qproperty-textColorPrimary;
+    border: 1px solid qproperty-borderColorStrong;
+    padding: qproperty-spacingSmall;
+    border-radius: qproperty-borderRadiusBase;
 }
 
-QMenuBar::item {
-    background-color: transparent;
-    padding: 4px 10px;
+/* Central Content Area (container for the main editor) */
+QWidget#CentralContentArea {
+    background-color: qproperty-bgColorOffset; /* Should be #252526 */
+    border: none; 
 }
 
-QMenuBar::item:selected {
-    background-color: #3E3E40;
-    color: #FFFFFF;
+/* Main Text Editor - make it distinct from its container */
+QTextEdit#MainTextEdit {
+    background-color: qproperty-bgColorOffsetAlt; /* Should be #2D2D2D */
+    color: qproperty-textColorPrimary;
+    border: 1px solid qproperty-borderColorBase;
+    border-radius: qproperty-borderRadiusBase;
+    padding: qproperty-spacingBase;
+    font-family: qproperty-fontFamilyMonospace;
 }
 
-QMenuBar::item:pressed {
-    background-color: #007ACC;
-    color: #FFFFFF;
+/* ================================= MAIN LAYOUT WIDGETS ================================= */
+/* Example: Style the main text editor, sidebars, status bar */
+QTextEdit, QPlainTextEdit {
+    background-color: qproperty-bgColorOffset;
+    color: qproperty-textColorPrimary;
+    border: 1px solid qproperty-borderColorBase;
+    border-radius: qproperty-borderRadiusBase;
+    padding: qproperty-spacingBase;
+    font-family: qproperty-fontFamilyMonospace; /* Often desired for editors */
 }
 
-/* Menu */
-QMenu {
-    background-color: #1E1E1E;
-    color: #FFFFFF;
-    border: 1px solid #3E3E40;
+QTextEdit:focus, QPlainTextEdit:focus {
+    border: 1px solid qproperty-borderColorFocus;
 }
 
-QMenu::item {
-    padding: 5px 30px 5px 20px;
+/* Example: for side panels like file explorer */
+/* You might use object names for specific panels: #fileExplorerPanel */
+QWidget[objectName="fileExplorerPanel"], QWidget[objectName="notesListPanel"] {
+    background-color: qproperty-bgColorOffset;
+    border-right: 1px solid qproperty-borderColorBase; /* Example */
 }
 
-QMenu::item:selected {
-    background-color: #3E3E40;
-    color: #FFFFFF;
-}
-
-/* Text edit */
-QTextEdit {
-    background-color: #1E1E1E;
-    color: #FFFFFF;
-    border: 1px solid #3E3E40;
-    selection-background-color: #264F78;
-    selection-color: #FFFFFF;
-    font-family: monospace;
-    font-size: 10pt;
-}
-
-/* Status bar */
 QStatusBar {
-    background-color: #007ACC;
-    color: #FFFFFF;
-    padding: 2px;
+    background-color: qproperty-bgColorOffset;
+    color: qproperty-textColorSecondary;
+    border-top: 1px solid qproperty-borderColorBase;
+}
+QStatusBar::item {
+    border: none; /* Remove default item borders */
 }
 
-/* Scroll bars */
+/* ================================= BUTTONS ================================= */
+QPushButton {
+    background-color: qproperty-bgColorOffsetAlt;
+    color: qproperty-textColorPrimary;
+    border: 1px solid qproperty-borderColorBase;
+    border-radius: qproperty-borderRadiusBase;
+    padding: 6px 12px; /* e.g., qproperty-spacingSmall qproperty-spacingMedium if defined that way */
+    min-height: qproperty-buttonHeight;
+    outline: none; /* Remove focus outline if custom styling it */
+}
+QPushButton:hover {
+    background-color: qproperty-bgColorHover;
+    border: 1px solid qproperty-borderColorFocus;
+}
+QPushButton:pressed {
+    background-color: qproperty-primaryColorPressed; /* Or a darker shade of its normal bg */
+    color: qproperty-textColorInverse;
+}
+QPushButton:disabled {
+    background-color: qproperty-bgColorOffset;
+    color: qproperty-textColorDisabled;
+    border: 1px solid qproperty-borderColorBase;
+}
+
+/* Primary Action Button (e.g., "Save", "Open Workspace") */
+QPushButton[class="primary"] {
+    background-color: qproperty-primaryColor;
+    color: qproperty-textColorInverse;
+    border: 1px solid qproperty-primaryColor;
+}
+QPushButton[class="primary"]:hover {
+    background-color: qproperty-primaryColorHover;
+    border: 1px solid qproperty-primaryColorHover;
+}
+QPushButton[class="primary"]:pressed {
+    background-color: qproperty-primaryColorPressed;
+}
+QPushButton[class="primary"]:disabled {
+    background-color: qproperty-primaryColorDisabled;
+    color: qproperty-textColorPrimary;
+    border: 1px solid qproperty-primaryColorDisabled;
+}
+
+
+/* ================================= INPUT FIELDS ================================= */
+QLineEdit, QComboBox, QSpinBox {
+    background-color: qproperty-bgColorOffsetAlt;
+    color: qproperty-textColorPrimary;
+    border: 1px solid qproperty-borderColorBase;
+    border-radius: qproperty-borderRadiusBase;
+    padding: qproperty-spacingSmall;
+    min-height: qproperty-inputHeight;
+}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
+    border: 1px solid qproperty-borderColorFocus;
+    background-color: qproperty-bgColorBase; /* Slightly change bg on focus */
+}
+QComboBox::down-arrow {
+    image: qproperty-iconChevronDown;
+    width: 12px;
+    height: 12px;
+    margin-right: 4px; /* Adjust spacing */
+}
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    width: 24px; /* Increased to accommodate arrow and margin */
+    border: none;
+}
+QComboBox QAbstractItemView { /* Dropdown list */
+    background-color: qproperty-bgColorOffsetAlt;
+    border: 1px solid qproperty-borderColorStrong;
+    color: qproperty-textColorPrimary;
+    selection-background-color: qproperty-primaryColor;
+    selection-color: qproperty-textColorInverse;
+}
+
+/* ================================= CHECKBOXES & RADIOBUTTONS ================================= */
+QCheckBox, QRadioButton {
+    spacing: qproperty-spacingBase; /* Space between indicator and text */
+}
+
+QCheckBox::indicator, QRadioButton::indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: qproperty-borderRadiusBase; /* For checkbox */
+    background-color: qproperty-bgColorOffsetAlt;
+    border: 1px solid qproperty-borderColorBase;
+}
+QRadioButton::indicator {
+    border-radius: 8px; /* Make it round */
+}
+
+QCheckBox::indicator:hover, QRadioButton::indicator:hover {
+    border: 1px solid qproperty-borderColorFocus;
+}
+
+QCheckBox::indicator:checked {
+    background-color: qproperty-primaryColor;
+    border: 1px solid qproperty-primaryColor;
+    image: qproperty-iconCheckmark;
+}
+QCheckBox::indicator:indeterminate { /* Optional: for tristate checkboxes */
+    background-color: qproperty-primaryColor;
+    border: 1px solid qproperty-primaryColor;
+    /* image: url(:/icons/dash.svg); */ /* Example for dash icon */
+}
+QRadioButton::indicator:checked {
+    background-color: qproperty-bgColorOffsetAlt; /* Keep background for the dot */
+    border: 1px solid qproperty-primaryColor;
+    image: qproperty-iconRadioDot; /* This will be the inner dot */
+}
+
+QCheckBox:disabled, QRadioButton:disabled {
+    color: qproperty-textColorDisabled;
+}
+QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {
+    background-color: qproperty-bgColorOffset;
+    border: 1px solid qproperty-borderColorBase;
+}
+QCheckBox::indicator:checked:disabled {
+    background-color: qproperty-primaryColorDisabled;
+    border: 1px solid qproperty-primaryColorDisabled;
+    image: none; /* Or a dimmed checkmark icon */
+}
+QRadioButton::indicator:checked:disabled {
+    border: 1px solid qproperty-primaryColorDisabled;
+    /* Consider a dimmed version of qproperty-iconRadioDot or color manipulation if possible */
+    image: qproperty-iconRadioDot; /* May need specific disabled dot icon */
+}
+
+/* ================================= LISTS & TREES ================================= */
+QListView, QTreeView {
+    background-color: qproperty-bgColorOffset;
+    color: qproperty-textColorPrimary;
+    border: 1px solid qproperty-borderColorBase;
+    alternate-background-color: qproperty-bgColorOffsetAlt; /* For striped rows, if desired */
+    outline: 0; /* Remove focus outline if custom styling selection */
+}
+QListView::item, QTreeView::item {
+    padding: 6px 8px; /* Increased padding: vertical 6px, horizontal 8px */
+    border-radius: qproperty-borderRadiusBase;
+}
+QListView::item:hover, QTreeView::item:hover {
+    background-color: qproperty-bgColorHover;
+}
+QListView::item:selected, QTreeView::item:selected {
+    background-color: qproperty-bgColorSelected;
+    color: qproperty-textColorInverse;
+    border-left: 3px solid qproperty-primaryColor; /* Accent border on selection */
+    padding-left: 5px; /* Adjust padding to account for the border (8px original - 3px border) */
+}
+QTreeView::branch {
+    background-color: transparent; /* Ensure no unwanted background */
+}
+QTreeView::branch:has-children:!has-siblings:closed,
+QTreeView::branch:closed:has-children:has-siblings {
+    image: qproperty-iconChevronRight;
+}
+QTreeView::branch:open:has-children:!has-siblings,
+QTreeView::branch:open:has-children:has-siblings {
+    image: qproperty-iconChevronOpen;
+}
+
+/* ================================= SCROLLBARS ================================= */
 QScrollBar:vertical {
     border: none;
-    background-color: #2D2D30;
-    width: 10px;
-    margin: 0px;
+    background: qproperty-bgColorOffset;
+    width: 12px; /* Slightly thicker */
+    margin: 0px 0px 0px 0px;
 }
-
 QScrollBar::handle:vertical {
-    background-color: #3E3E40;
-    min-height: 20px;
+    background: qproperty-borderColorStrong;
+    min-height: 30px;
+    border-radius: 6px; /* More rounded */
+    margin: 1px; /* Small margin from edges */
 }
-
 QScrollBar::handle:vertical:hover {
-    background-color: #007ACC;
+    background: qproperty-textColorSecondary; /* Lighter on hover */
 }
-
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    border: none;
+    background: none;
     height: 0px;
+    subcontrol-position: top;
+    subcontrol-origin: margin;
+}
+QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical {
+    background: none;
+}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none;
 }
 
 QScrollBar:horizontal {
     border: none;
-    background-color: #2D2D30;
-    height: 10px;
-    margin: 0px;
+    background: qproperty-bgColorOffset;
+    height: 12px;
+    margin: 0px 0px 0px 0px;
 }
-
 QScrollBar::handle:horizontal {
-    background-color: #3E3E40;
-    min-width: 20px;
+    background: qproperty-borderColorStrong;
+    min-width: 30px;
+    border-radius: 6px;
+    margin: 1px;
 }
-
 QScrollBar::handle:horizontal:hover {
-    background-color: #007ACC;
+    background: qproperty-textColorSecondary;
 }
-
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    border: none;
+    background: none;
     width: 0px;
+    subcontrol-position: left;
+    subcontrol-origin: margin;
+}
+QScrollBar::left-arrow:horizontal, QScrollBar::right-arrow:horizontal {
+    background: none;
+}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: none;
 }
 
-/* Dialog boxes */
+/* ================================= TABS ================================= */
+QTabWidget::pane {
+    border-top: 1px solid qproperty-borderColorBase;
+    background-color: qproperty-bgColorBase;
+}
+QTabBar::tab {
+    background-color: qproperty-bgColorOffset;
+    color: qproperty-textColorSecondary;
+    border: 1px solid qproperty-borderColorBase;
+    border-bottom: none; /* Usually */
+    padding: qproperty-spacingBase;
+    margin-right: 2px;
+    border-top-left-radius: qproperty-borderRadiusBase;
+    border-top-right-radius: qproperty-borderRadiusBase;
+}
+QTabBar::tab:selected {
+    background-color: qproperty-bgColorBase; /* Match pane or slightly lighter */
+    color: qproperty-textColorPrimary;
+    border-bottom: 1px solid qproperty-bgColorBase; /* Make it look connected to pane */
+}
+QTabBar::tab:hover:!selected {
+    background-color: qproperty-bgColorHover;
+}
+
+
+/* ================================= DOCK WIDGETS & TOOLBARS ================================= */
+QDockWidget {
+    border: 1px solid qproperty-borderColorBase; /* Optional: a subtle border for the dock itself */
+    /* titlebar-close-icon and titlebar-float-icon can be styled if needed */
+}
+
+QDockWidget::title {
+    background-color: #3A3A3A; /* Specific color from requirement */
+    color: #D4D4D4;             /* Specific color from requirement */
+    padding: 8px;               /* Specific padding from requirement */
+    border: none;               /* Ensure no extra borders */
+    /* Optionally, ensure minimum height and alignment */
+    min-height: 20px; /* Adjust as needed */
+    text-align: left; /* Or center, depending on preference */
+}
+
+/* Style for the buttons on the dock widget title bar (close, float) if needed */
+QDockWidget::close-button, QDockWidget::float-button {
+    background-color: transparent;
+    border: none;
+    padding: 4px;
+    /* Use icons if available, e.g., image: url(:/icons/close.svg); */
+    /* Or use subcontrol properties for styling */
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+}
+
+QDockWidget::close-button:hover {
+    background-color: qproperty-bgColorHover; /* Use a theme variable for hover */
+}
+
+QDockWidget::float-button:hover {
+    background-color: qproperty-bgColorHover; /* Use a theme variable for hover */
+}
+
+QToolBar {
+    background-color: qproperty-bgColorOffset;
+    border-bottom: 1px solid qproperty-borderColorBase;
+    padding: qproperty-spacingSmall;
+    spacing: qproperty-spacingBase; /* Spacing between toolbar items */
+}
+
+QToolBar QToolButton {
+    background-color: transparent;
+    border: none;
+    border-radius: qproperty-borderRadiusBase;
+    padding: qproperty-spacingSmall;
+}
+
+QToolBar QToolButton:hover {
+    background-color: qproperty-bgColorHover;
+}
+
+QToolBar QToolButton:pressed {
+    background-color: qproperty-primaryColorPressed;
+}
+
+QToolBar QToolButton:checked {
+    background-color: qproperty-bgColorSelected; /* For toggle buttons */
+}
+
+QToolBar::separator {
+    width: 1px;
+    background-color: qproperty-borderColorBase;
+    margin-left: qproperty-spacingSmall;
+    margin-right: qproperty-spacingSmall;
+}
+
+/* ================================= DIALOGS ================================= */
 QDialog {
-    background-color: #2D2D30;
-    color: #FFFFFF;
+    background-color: qproperty-bgColorBase;
+}
+/* You might need to style QDialogButtonBox specifically */
+QDialogButtonBox QPushButton {
+    /* Standard button styles apply, or customize further */
+    min-width: 80px; /* Common practice for dialog buttons */
 }
 
-/* Buttons */
-QPushButton {
-    background-color: #3E3E40;
-    color: #FFFFFF;
-    border: 1px solid #3E3E40;
-    padding: 5px 15px;
-    border-radius: 2px;
+/* ================================= MENUS & MENUBAR ================================= */
+QMenuBar {
+    background-color: qproperty-bgColorOffset; /* Or bgColorBase */
+    spacing: qproperty-spacingSmall; /* Spacing between menu bar items */
+}
+QMenuBar::item {
+    padding: qproperty-spacingSmall qproperty-spacingBase;
+    background-color: transparent;
+    color: qproperty-textColorPrimary;
+    border-radius: qproperty-borderRadiusBase;
+}
+QMenuBar::item:selected { /* Hover state for menu bar items */
+    background-color: qproperty-bgColorHover;
+}
+QMenuBar::item:pressed { /* When a menu is open */
+    background-color: qproperty-primaryColor;
+    color: qproperty-textColorInverse;
 }
 
-QPushButton:hover {
-    background-color: #505050;
-    border: 1px solid #505050;
+QMenu {
+    background-color: qproperty-bgColorOffsetAlt;
+    border: 1px solid qproperty-borderColorStrong;
+    padding: qproperty-spacingSmall;
+    border-radius: qproperty-borderRadiusBase;
+}
+QMenu::item {
+    padding: qproperty-spacingBase qproperty-spacingMedium; /* e.g., 8px 12px */
+    background-color: transparent;
+    color: qproperty-textColorPrimary;
+    border-radius: qproperty-borderRadiusBase; /* Rounded hover for menu items */
+}
+QMenu::item:selected { /* Hover state for menu items */
+    background-color: qproperty-primaryColor;
+    color: qproperty-textColorInverse;
+}
+QMenu::item:disabled {
+    color: qproperty-textColorDisabled;
+    background-color: transparent;
+}
+QMenu::separator {
+    height: 1px;
+    background-color: qproperty-borderColorBase;
+    margin-top: qproperty-spacingSmall;
+    margin-bottom: qproperty-spacingSmall;
+    margin-left: qproperty-spacingBase;
+    margin-right: qproperty-spacingBase;
+}
+QMenu::indicator {
+    width: 16px;
+    height: 16px;
+    /* Could also use an image for the checkmark, e.g. */
+    /* image: qproperty-iconCheckmark; */
+}
+QMenu::indicator:non-exclusive:checked {
+     image: qproperty-iconCheckmark; /* Example for checkable menu items */
 }
 
-QPushButton:pressed {
-    background-color: #007ACC;
-    border: 1px solid #007ACC;
+/* Add more specific styles for QCheckBox, QRadioButton, QSlider, QProgressBar, etc. */
+
+
+/* ================================= TYPOGRAPHY & LABELS ================================= */
+QLabel {
+    background-color: transparent;
+    color: qproperty-textColorPrimary;
+}
+QLabel[class="secondary"] {
+    color: qproperty-textColorSecondary;
+    font-size: qproperty-fontSizeSmall;
+}
+QLabel[class="error"] {
+    color: qproperty-textColorError;
+}
+QLabel[class="success"] {
+    color: qproperty-textColorSuccess;
 }
 
-/* Message boxes */
-QMessageBox {
-    background-color: #2D2D30;
-    color: #FFFFFF;
+/* ================================= CUSTOM NAMED WIDGETS ================================= */
+/* Use object names for specific styling */
+
+/* Workspace Welcome Widget Specific Styles */
+QWidget#WorkspaceWelcomeWidget {
+    background-color: qproperty-bgColorOffset; /* Matches sidebar general bg */
+    padding: qproperty-spacingLarge; /* Overall padding */
+    border: none;
 }
 
-/* File dialog */
-QFileDialog {
-    background-color: #2D2D30;
-    color: #FFFFFF;
+QWidget#WorkspaceWelcomeWidget QLabel#welcomeTitleLabel { /* Assuming objectName="welcomeTitleLabel" */
+    font-size: qproperty-fontSizeH1;
+    color: qproperty-textColorPrimary;
+    font-weight: 600; /* Bolder */
+    padding-bottom: qproperty-spacingBase; /* Space below title */
 }
 
-/* Tooltips */
-QToolTip {
-    background-color: #1E1E1E;
-    color: #FFFFFF;
-    border: 1px solid #3E3E40;
-    padding: 2px;
+QWidget#WorkspaceWelcomeWidget QLabel#welcomeMessageLabel { /* Assuming objectName="welcomeMessageLabel" */
+    font-size: qproperty-fontSizeBase;
+    color: qproperty-textColorSecondary;
+    padding-bottom: qproperty-spacingLarge; /* More space before button */
+    line-height: 1.4; /* Improve readability if text wraps */
+}
+
+QWidget#WorkspaceWelcomeWidget QPushButton#openWorkspaceButton { /* Assuming objectName="openWorkspaceButton" and class="primary" */
+    /* Relies on QPushButton[class="primary"] for base styling */
+    /* Additional specific styles if needed: */
+    margin-top: qproperty-spacingSmall;
+    margin-bottom: qproperty-spacingLarge; /* Space after button */
+    font-size: qproperty-fontSizeBase; /* Consistent with other buttons or slightly larger */
+}
+
+QWidget#WorkspaceWelcomeWidget QLabel#recentWorkspacesTitleLabel { /* Assuming objectName="recentWorkspacesTitleLabel" */
+    font-size: qproperty-fontSizeLarge;
+    color: qproperty-textColorPrimary;
+    font-weight: 500; /* Medium weight */
+    padding-top: qproperty-spacingMedium;
+    padding-bottom: qproperty-spacingSmall;
+}
+
+QListWidget#RecentWorkspacesList { /* Assuming objectName="RecentWorkspacesList" */
+    background-color: transparent; /* Blend into welcome widget background */
+    border: none;
+    outline: 0; /* Remove focus outline */
+}
+
+QListWidget#RecentWorkspacesList::item {
+    padding: qproperty-spacingBase; /* 8px */
+    border-radius: qproperty-borderRadiusBase;
+    color: qproperty-textColorSecondary;
+    background-color: transparent;
+}
+
+QListWidget#RecentWorkspacesList::item:hover {
+    background-color: qproperty-bgColorHover;
+    color: qproperty-textColorPrimary;
+}
+
+QListWidget#RecentWorkspacesList::item:selected {
+    background-color: qproperty-bgColorSelected;
+    color: qproperty-textColorInverse;
+    border-left: 3px solid qproperty-primaryColor; /* Consistent with TreeView selection */
+    padding-left: 5px; /* Adjust for border (8px original - 3px border) */
+}
+
+
+
+
+/* Style for the close and float buttons on the dock widget title bar */
+QDockWidget#FileExplorerDockWidget::close-button,
+QDockWidget#FileExplorerDockWidget::float-button {
+    background-color: transparent;
+    border: none; /* Remove default borders */
+    padding: qproperty-spacingSmall; /* Add some padding around the icon */
+    border-radius: qproperty-borderRadiusSmall; /* Slightly rounded corners */
+    /* Icons are typically managed by QStyle or set in code. QSS styles the button. */
+}
+
+QDockWidget#FileExplorerDockWidget::close-button:hover,
+QDockWidget#FileExplorerDockWidget::float-button:hover {
+    background-color: qproperty-bgColorHover; /* Subtle hover effect */
+}
+
+QDockWidget#FileExplorerDockWidget::close-button:pressed,
+QDockWidget#FileExplorerDockWidget::float-button:pressed {
+    background-color: qproperty-bgColorSelected; /* Pressed effect */
 }

@@ -1,0 +1,80 @@
+/* styles/base_variables.qss */
+
+/*
+ * =========================================================================
+ * BASE VARIABLES
+ * Define custom QProperties here to be used as variables across themes.
+ * These properties are typically set on a high-level widget (e.g., MainWindow)
+ * and then accessed in other QSS files.
+ * =========================================================================
+ */
+
+/*
+    Usage in Python (e.g., in MainWindow.__init__):
+    with open("styles/base_variables.qss", "r") as f:
+        self.setStyleSheet(f.read()) # Apply base properties first
+
+    Or, more robustly, load this and then the theme file,
+    ensuring the properties are set on the widgets themselves if needed.
+    A common approach is to set these on QApplication or the MainWindow.
+*/
+
+* {
+    /* Primary Colors */
+    qproperty-primaryColor: #007ACC; /* Accent Blue */
+    qproperty-primaryColorHover: #005C99;
+    qproperty-primaryColorPressed: #004477;
+    qproperty-primaryColorDisabled: #B0B0B0;
+
+
+    /* Background Colors - Dark Theme Example Values */
+    qproperty-bgColorBase: #1E1E1E;        /* Deepest background */
+    qproperty-bgColorOffset: #252526;     /* Slightly lighter bg for panels, sidebars */
+    qproperty-bgColorOffsetAlt: #2D2D2D; /* Another level for elements like inputs */
+    qproperty-bgColorHover: #3A3A3A;       /* Hover state for list items, etc. */
+    qproperty-bgColorSelected: #004C80;   /* Selected item background (complements primaryColor) */
+
+    /* Text Colors - Dark Theme Example Values */
+    qproperty-textColorPrimary: #D4D4D4;   /* Main text */
+    qproperty-textColorSecondary: #A0A0A0; /* Less important text, placeholders */
+    qproperty-textColorDisabled: #707070;
+    qproperty-textColorAccent: qproperty-primaryColor; /* Text that uses the accent color */
+    qproperty-textColorInverse: #FFFFFF; /* Text on primaryColor backgrounds */
+    qproperty-textColorError: #F44336;    /* Error messages */
+    qproperty-textColorSuccess: #4CAF50;  /* Success messages */
+
+
+    /* Border Colors - Dark Theme Example Values */
+    qproperty-borderColorBase: #333333;
+    qproperty-borderColorStrong: #444444;
+    qproperty-borderColorFocus: qproperty-primaryColor;
+
+    /* Font Families (Define fallbacks) */
+    qproperty-fontFamilyPrimary: "Inter", "Roboto", "Open Sans", "Segoe UI", "Helvetica Neue", "Arial", sans-serif;
+    qproperty-fontFamilyMonospace: "Fira Code", "JetBrains Mono", "Consolas", "Courier New", monospace;
+
+    /* Font Sizes */
+    qproperty-fontSizeBase: 13px;
+    qproperty-fontSizeSmall: 11px;
+    qproperty-fontSizeLarge: 16px;
+    qproperty-fontSizeH1: 24px;
+    qproperty-fontSizeH2: 20px;
+
+    /* Spacing & Sizing */
+    qproperty-spacingSmall: 4px;
+    qproperty-spacingBase: 8px;
+    qproperty-spacingMedium: 12px;
+    qproperty-spacingLarge: 16px;
+
+    qproperty-borderRadiusBase: 3px;
+    qproperty-buttonHeight: 36px;
+    qproperty-inputHeight: 36px;
+    qproperty-treeIndentation: 15px; /* Default indentation for tree views */
+
+    /* Icon Properties (Paths are placeholders, use Qt Resource System :/icons/...) */
+    qproperty-iconChevronDown: url(:/icons/chevron-down.svg);
+    qproperty-iconChevronRight: url(:/icons/chevron-right.svg);
+    qproperty-iconCheckmark: url(:/icons/check.svg);
+    qproperty-iconRadioDot: url(:/icons/radio_button_checked.svg); /* Placeholder: verify icon exists */
+    qproperty-iconChevronOpen: url(:/icons/chevron-down.svg); /* For open tree branches */
+}

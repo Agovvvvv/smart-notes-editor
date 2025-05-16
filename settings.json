@@ -18,19 +18,36 @@
         "recent_files": []
     },
     "appearance": {
-        "theme": "light"
+        "theme": "dark"
     },
     "ai": {
         "backend": "google_gemini",
         "huggingface_api_key": "",
         "huggingface_summarization_model_id": "facebook/bart-large-cnn",
         "huggingface_text_generation_model_id": "gpt2",
-        "google_api_key": "AIzaSyAVel-0TKphsjFBKSjk6uqeLX6WTGuqk0g",
+        "google_api_key": "",
         "max_links_for_qna": 3,
         "summarization_backend": "local",
         "model": "facebook/bart-large-cnn"
     },
     "enhancement_templates": {
         "Improvement": "Add details to this text"
+    },
+    "workspaces": {
+        "list": [
+            {
+                "name": "prova",
+                "path": "/Users/nick/Desktop/Agov_Intelligence/Projects/gestore_appunti"
+            },
+            {
+                "name": "prova2",
+                "path": "/Users/nick/Desktop/Agov_Intelligence"
+            }
+        ],
+        "active_name": "prova2",
+        "recent_workspaces_names": [
+            "prova2",
+            "prova"
+        ]
     }
 }

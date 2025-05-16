@@ -1,0 +1,15 @@
+<RCC>
+    <qresource prefix="/icons">
+        <file alias="chevron-down.svg">icons/chevron-down.svg</file>
+        <file alias="chevron-right.svg">icons/chevron-right.svg</file>
+        <file alias="checkmark.svg">icons/check.svg</file>
+        <file alias="radio_button_unchecked.svg">icons/radio_button_unchecked.svg</file>
+        <file alias="radio_button_checked.svg">icons/radio_button_checked.svg</file>
+        <!-- Add other icons here -->
+    </qresource>
+    <qresource prefix="/styles">
+        <file alias="dark_theme.qss">styles/dark_theme.qss</file>
+        <file alias="base_variables.qss">styles/base_variables.qss</file>
+        <!-- Add other stylesheets here -->
+    </qresource>
+</RCC>

@@ -7,6 +7,8 @@ Manager for handling UI panels.
 
 import logging
 from PyQt5.QtWidgets import QWidget
+from PyQt5.QtWidgets import QDockWidget, QTreeWidget, QAbstractItemView # Replaced QTreeView, QFileSystemModel with QTreeWidget
+from PyQt5.QtCore import Qt, QDir # Added QDir for potential use, though root path logic moves to MainWindow
 
 # Import panels
 from views.panels.summary_panel import SummaryPanel
@@ -24,6 +26,42 @@ class PanelManager:
         self.summary_panel = None
         self.web_panel = None
         self.suggestions_panel = None
+
+    def create_summary_dock_widget(self):
+        """Create and configure the dock widget for the summary panel."""
+        logger.debug("PanelManager: Creating summary dock widget.")
+        summary_dock_widget = QDockWidget("Note Summary", self.main_window)
+        summary_dock_widget.setObjectName("SummaryDockWidget")
+        summary_panel_view = SummaryPanel(self.main_window) # Pass main_window as parent
+        summary_dock_widget.setWidget(summary_panel_view)
+        summary_dock_widget.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        summary_dock_widget.setVisible(False) # Initially hidden
+        logger.debug("PanelManager: Summary dock widget created.")
+        return summary_dock_widget, summary_panel_view
+
+    def create_file_explorer_dock_widget(self):
+        """Creates and configures the file explorer dock widget."""
+        logger.debug("PanelManager: Creating File Explorer panel")
+        file_explorer_dock_widget = QDockWidget("File Explorer", self.main_window)
+        file_explorer_dock_widget.setObjectName("FileExplorerDockWidget")
+        file_explorer_dock_widget.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+
+        file_tree_widget = QTreeWidget(file_explorer_dock_widget) # Changed from QTreeView to QTreeWidget
+        file_tree_widget.setObjectName("FileTreeWidget") # Renamed object
+        # QFileSystemModel is no longer used here; population will be manual in MainWindow
+
+        # QTreeWidget specific settings
+        file_tree_widget.setAnimated(False) # Keep animations off for performance
+        file_tree_widget.setIndentation(20) # Standard indentation
+        file_tree_widget.setSortingEnabled(True) # Allow column sorting if headers are visible
+        file_tree_widget.sortByColumn(0, Qt.AscendingOrder) # Sort by name by default
+
+        file_tree_widget.setHeaderHidden(True) # Hide column headers for a cleaner look
+
+        file_explorer_dock_widget.setWidget(file_tree_widget)
+        logger.debug("PanelManager: File Explorer panel with QTreeWidget created.")
+        # Return the QTreeWidget instance; QFileSystemModel is no longer part of this panel's creation
+        return file_explorer_dock_widget, file_tree_widget
     
     def show_summary_panel(self, summary):
         """

@@ -1,12 +1,46 @@
-from PyQt5.QtWidgets import QAction, QToolBar
+from PyQt5.QtWidgets import QAction, QToolBar, QApplication, QMenu
 from PyQt5.QtGui import QIcon
 import logging
 from functools import partial
 
 logger = logging.getLogger(__name__)
 
+def _create_enhance_note_submenu(main_window, ai_tools_menu):
+    """Helper function to create the 'Enhance Note' submenu."""
+    enhance_note_menu = QMenu("&Enhance Note", main_window)
+    ai_tools_menu.addMenu(enhance_note_menu)
+
+    enhancement_styles = {
+        "Default Enhance": "default_enhance",
+        "Improve Clarity": "clarity",
+        "Make Concise": "concise",
+        "Expand Details": "expand",
+        "Custom Prompt...": "custom"
+    }
+
+    for text, style_key in enhancement_styles.items():
+        action = QAction(text, main_window)
+        action.setStatusTip(f"Enhance note focusing on {style_key.replace('_', ' ')}")
+        # Use functools.partial to pass the style_key to the handler
+        action.triggered.connect(partial(main_window.on_enhance_note_triggered, style_key))
+        enhance_note_menu.addAction(action)
+    
+    # Add 'Enhance from Template...' action separately
+    enhance_from_template_action = QAction("Enhance from &Template...", main_window)
+    enhance_from_template_action.setStatusTip("Enhance note using a saved prompt template")
+    enhance_from_template_action.triggered.connect(main_window.on_enhance_from_template_triggered)
+    enhance_note_menu.addAction(enhance_from_template_action)
+
+    # Action to manage templates
+    manage_templates_action = QAction("&Manage Enhancement Templates...", main_window)
+    manage_templates_action.setStatusTip("Open the enhancement template manager")
+    manage_templates_action.triggered.connect(main_window.on_manage_enhancement_templates)
+    enhance_note_menu.addSeparator()
+    enhance_note_menu.addAction(manage_templates_action)
+
+
 def create_file_menu(main_window, menubar):
-    """Creates and returns the File menu."""
+    """Creates the File menu and its actions."""
     file_menu = menubar.addMenu('&File')
     
     new_action = QAction("&New", main_window)
@@ -21,6 +55,18 @@ def create_file_menu(main_window, menubar):
     open_action.triggered.connect(main_window.file_controller.open_note)
     file_menu.addAction(open_action)
     
+    main_window.open_folder_action = QAction(QIcon.fromTheme("folder-open", QIcon(":/icons/folder-open.png")), "&Open Folder...", main_window)
+    main_window.open_folder_action.setStatusTip("Open an existing folder to browse files")
+    main_window.open_folder_action.triggered.connect(main_window.on_open_folder_selected) # Connect to slot
+    file_menu.addAction(main_window.open_folder_action)
+
+    manage_workspaces_action = QAction(QIcon.fromTheme("system-file-manager"), "&Manage Workspaces...", main_window)
+    manage_workspaces_action.setStatusTip("Create, remove, or set active workspaces")
+    manage_workspaces_action.triggered.connect(main_window.explorer_panel_manager.show_workspace_manager_dialog)
+    file_menu.addAction(manage_workspaces_action)
+    
+    file_menu.addSeparator()
+    
     save_action = QAction("&Save", main_window)
     save_action.setShortcut("Ctrl+S")
     save_action.setStatusTip("Save the current note")
@@ -32,6 +78,11 @@ def create_file_menu(main_window, menubar):
     save_as_action.setStatusTip("Save the current note with a new name")
     save_as_action.triggered.connect(main_window.file_controller.save_note_as)
     file_menu.addAction(save_as_action)
+
+    # Recent Workspaces submenu
+    # The menu is now created and managed by ExplorerPanelManager
+    recent_workspaces_menu = main_window.explorer_panel_manager.get_recent_workspaces_menu()
+    file_menu.addMenu(recent_workspaces_menu)
     
     file_menu.addSeparator()
     
@@ -91,122 +142,79 @@ def create_edit_menu(main_window, menubar):
 
 def create_ai_tools_menu(main_window, menubar):
     """Create the AI Tools menu and its actions."""
-    ai_menu = menubar.addMenu("&AI Tools")
-    ai_menu.setObjectName("AiMenu")
+    ai_tools_menu = menubar.addMenu("&AI Tools")
 
-    # --- Summarization --- #
-    action_summarize = QAction(QIcon.fromTheme("edit-copy"), "&Summarize Note", main_window)
-    action_summarize.setStatusTip("Generate a summary of the current note using AI")
-    # Check if the target method exists before connecting
-    if hasattr(main_window, 'on_summarize_note'):
-        action_summarize.triggered.connect(main_window.on_summarize_note)
-    else:
-        logger.warning("Method 'on_summarize_note' not found in main_window.")
-        action_summarize.setEnabled(False)
-    ai_menu.addAction(action_summarize)
-    main_window.action_summarize = action_summarize # Store action reference
+    # Summarize Note action
+    summarize_action = QAction("&Summarize Note", main_window)
+    summarize_action.setStatusTip("Generate a summary of the current note")
+    summarize_action.triggered.connect(main_window.ai_feature_manager.trigger_summarization)
+    ai_tools_menu.addAction(summarize_action)
 
-    # --- Enhancement Submenu --- #
-    enhance_menu = ai_menu.addMenu(QIcon.fromTheme("document-edit"), "&Enhance Note") # Changed to addMenu
-    enhance_menu.setObjectName("EnhanceNoteMenu")
+    # Generate Note Text action
+    main_window.action_generate_text = QAction("Generate Text from &Prompt...", main_window)
+    main_window.action_generate_text.setStatusTip("Generate new text content based on a custom prompt")
+    main_window.action_generate_text.triggered.connect(main_window.ai_feature_manager.trigger_text_generation)
+    ai_tools_menu.addAction(main_window.action_generate_text)
 
-    styles = {
-        "Improve Clarity": "clarity",
-        "Make Concise": "concise",
-        "Expand Details": "expand",
-        "Custom Prompt...": "custom"
-    }
+    ai_tools_menu.addSeparator()
 
-    for text, style_key in styles.items():
-        action_enhance_style = QAction(text, main_window)
-        action_enhance_style.setStatusTip(f"Enhance the note or selection using AI ({text})")
-        # Use partial to pass the style_key to the handler
-        if hasattr(main_window, 'on_enhance_note_triggered'):
-            action_enhance_style.triggered.connect(partial(main_window.on_enhance_note_triggered, style=style_key))
-            # Store action reference if needed, e.g., for dynamic enabling/disabling
-            setattr(main_window, f"action_enhance_{style_key}", action_enhance_style)
-        else:
-            logger.warning(f"Method 'on_enhance_note_triggered' not found in main_window for style '{style_key}'.")
-            action_enhance_style.setEnabled(False)
-        enhance_menu.addAction(action_enhance_style)
+    # Enhance Note submenu (created by helper)
+    _create_enhance_note_submenu(main_window, ai_tools_menu)
 
-    action_enhance_from_template = QAction(QIcon.fromTheme("view-list-text"), "From Saved &Template...", main_window) # Example Icon
-    action_enhance_from_template.setStatusTip("Enhance text using a saved template")
-    if hasattr(main_window, 'on_enhance_from_template_triggered'):
-        action_enhance_from_template.triggered.connect(main_window.on_enhance_from_template_triggered)
-    else:
-        logger.warning("Method 'on_enhance_from_template_triggered' not found in main_window.")
-        action_enhance_from_template.setEnabled(False)
-    enhance_menu.addAction(action_enhance_from_template)
-    main_window.action_enhance_from_template = action_enhance_from_template
+    ai_tools_menu.addSeparator()
 
-    enhance_menu.addSeparator()
+    # AI Services Configuration action
+    configure_ai_services_action = QAction("&AI Services", main_window)
+    configure_ai_services_action.setStatusTip("Configure AI model providers and API keys")
+    configure_ai_services_action.triggered.connect(main_window.on_configure_ai_services)
+    ai_tools_menu.addAction(configure_ai_services_action)
 
-    # --- Text Generation --- #
-    action_generate_text = QAction(QIcon.fromTheme("applications-accessories"), "&Generate Text from Prompt...", main_window)
-    action_generate_text.setStatusTip("Generate new text content based on a prompt")
-    if hasattr(main_window, 'on_generate_note_text'):
-        action_generate_text.triggered.connect(main_window.on_generate_note_text)
-    else:
-        logger.warning("Method 'on_generate_note_text' not found in main_window.")
-        action_generate_text.setEnabled(False)
-    ai_menu.addAction(action_generate_text)
-    main_window.action_generate_text = action_generate_text
+    # Select Model action (if using local models directly that need selection)
+    action_select_model = QAction("Select &Model...", main_window)
+    action_select_model.setStatusTip("Select the AI model for summarization and generation")
+    action_select_model.triggered.connect(main_window.ai_feature_manager.trigger_model_selection)
+    ai_tools_menu.addAction(action_select_model)
 
-    ai_menu.addSeparator()
-
-    # --- Enhancement Templates --- #
-    action_manage_templates = QAction(QIcon.fromTheme("document-properties"), "Manage Enhancement &Templates...", main_window)
-    action_manage_templates.setStatusTip("Create, edit, or delete custom enhancement templates")
-    if hasattr(main_window, 'on_manage_enhancement_templates'):
-        action_manage_templates.triggered.connect(main_window.on_manage_enhancement_templates)
-    else:
-        logger.warning("Method 'on_manage_enhancement_templates' not found in main_window.")
-        action_manage_templates.setEnabled(False)
-    ai_menu.addAction(action_manage_templates)
-    main_window.action_manage_templates = action_manage_templates
-
-    # --- AI Services Configuration --- #
-    action_configure_ai = QAction(QIcon.fromTheme("preferences-system"), "&AI Services", main_window)
-    action_configure_ai.setStatusTip("Configure AI model settings, backends, and API keys")
-    if hasattr(main_window, 'on_configure_ai_services'):
-        action_configure_ai.triggered.connect(main_window.on_configure_ai_services)
-    else:
-        logger.warning("Method 'on_configure_ai_services' not found in main_window.")
-        action_configure_ai.setEnabled(False)
-    ai_menu.addAction(action_configure_ai)
-    main_window.action_configure_ai = action_configure_ai
-
-    # --- Model Selection (Legacy/Alternative) --- #
-    action_select_model = QAction(QIcon.fromTheme("deepbrain"), "Select &Local Model...", main_window) # Example Icon
-    action_select_model.setStatusTip("Select the local AI model for processing")
-    if hasattr(main_window, 'on_select_model'):
-        action_select_model.triggered.connect(main_window.on_select_model)
-    else:
-        logger.warning("Method 'on_select_model' not found in main_window.")
-        action_select_model.setEnabled(False)
-    # ai_menu.addAction(action_select_model) # Optionally hide if Configure AI is preferred
-    main_window.action_select_model = action_select_model
-
-    logger.debug("AI Tools menu created.")
-    return ai_menu
+    return ai_tools_menu
 
 def create_view_menu(main_window, menubar):
     """Creates and returns the View menu."""
     view_menu = menubar.addMenu("&View")
-    # Add view-related actions here, e.g., toggle panels, themes
-    # Example: Toggle Summary Panel Action (if it's not already handled by dock widget itself)
-    # if hasattr(main_window, 'summary_dock_widget'):
-    #     toggle_summary_panel_action = main_window.summary_dock_widget.toggleViewAction()
-    #     toggle_summary_panel_action.setText("Toggle Summary Panel")
-    #     view_menu.addAction(toggle_summary_panel_action)
+
+    # Add the toggle action for the File Explorer Panel
+    # This action was created in MainWindow.__init__ using file_explorer_dock_widget.toggleViewAction()
+    if hasattr(main_window, 'file_explorer_toggle_action') and main_window.file_explorer_toggle_action:
+        view_menu.addAction(main_window.file_explorer_toggle_action)
+        # The text and status tip are already set on this action in MainWindow
+    else:
+        # This case should ideally not be hit if MainWindow initializes correctly.
+        # logger.warning("create_view_menu: main_window.file_explorer_toggle_action not found.") # Optional logging
+        pass # Or add a disabled placeholder action
+
+    # Example: Add a toggle for the Summary Panel if you want one
+    if hasattr(main_window, 'summary_dock_widget'):
+        summary_panel_toggle_action = main_window.summary_dock_widget.toggleViewAction()
+        summary_panel_toggle_action.setText("Toggle Summary Panel")
+        summary_panel_toggle_action.setStatusTip("Show or hide the Summary panel")
+        view_menu.addAction(summary_panel_toggle_action)
+    
+    # Themes submenu (ensure QMenu is imported)
+    # from PyQt5.QtWidgets import QMenu 
+    themes_menu = QMenu("&Themes", main_window) 
+    view_menu.addMenu(themes_menu)
+    
     return view_menu
 
-def create_context_menu_actions(main_window, menubar):
-    """Creates and returns the Context menu (for menubar)."""
-    context_menu = menubar.addMenu("&Context")
+def create_context_menu_actions():
+    """Creates context menu actions for the text editor."""
+    # Example: main_window.text_edit.customContextMenuRequested.connect(lambda pos: on_text_edit_context_menu(main_window, pos))
+    # For now, this function might not be strictly necessary if context menus are
+    # built directly where needed (e.g., in MainWindow for the text_edit)
+    # If it becomes a factory for actions used in multiple context menus, it makes sense.
     
-    return context_menu
+    # This function appears to be unused as per lint. Removing main_window and menubar params if not used here.
+    # If it's intended to be called, its call site and usage need to be clarified.
+    pass # Placeholder if no actions are being created globally here
 
 def populate_toolbar(main_window, toolbar):
     """Populates the given toolbar with actions."""
@@ -246,3 +254,18 @@ def populate_toolbar(main_window, toolbar):
 
     if hasattr(main_window, 'action_generate_text'):
         toolbar.addAction(main_window.action_generate_text)
+
+class UiFactory:
+    def setup_menus_and_toolbar(self):
+        """Sets up the main menus and toolbar for the main window."""
+        menubar = self.main_window.menuBar()
+
+        create_file_menu(self.main_window, menubar)
+        create_edit_menu(self.main_window, menubar)
+        create_view_menu(self.main_window, menubar)
+        create_ai_tools_menu(self.main_window, menubar)
+        # create_web_menu(self.main_window, menubar) # If web menu is needed later
+        create_context_menu_actions() # Corrected: Call with no arguments
+
+        toolbar = QToolBar("Main Toolbar")
+        toolbar.setObjectName("MainToolbar")

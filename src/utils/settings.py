@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 class Settings:
     """Handles application settings."""
     
+    MAX_RECENT_WORKSPACES = 5
+    
     def __init__(self):
         """Initialize settings with default values."""
         # Get the project root directory
@@ -55,7 +57,12 @@ class Settings:
                 "google_api_key": "",
                 "max_links_for_qna": 3 # Default number of links to fetch for Q&A
             },
-            "enhancement_templates": {} 
+            "enhancement_templates": {}, 
+            "workspaces": {
+                "list": [],  # List of dict: {'name': str, 'path': str}
+                "active_name": None,
+                "recent_workspaces_names": [] # List of recently opened workspace names (max 5)
+            }
         }
         
         # Current settings
@@ -212,16 +219,114 @@ class Settings:
         backend = self.get("ai", "backend", "local")
         return backend in ["huggingface_api", "google_gemini"]
 
-    def _deep_update(self, target, source):
-        """
-        Recursively update a dictionary.
+    def get_workspaces(self) -> list:
+        """Get the list of all configured workspaces."""
+        return self.config.get("workspaces", {}).get("list", [])
+
+    def add_workspace(self, name: str, path: str) -> bool:
+        """Add a new workspace. Ensures name is unique."""
+        if not name or not path:
+            logger.warning("Workspace name and path cannot be empty.")
+            return False
+
+        workspaces = self.get_workspaces()
+        if any(ws['name'] == name for ws in workspaces):
+            logger.warning(f"Workspace with name '{name}' already exists.")
+            return False
+
+        if "workspaces" not in self.config:
+            self.config["workspaces"] = {"list": [], "active_name": None}
+        elif "list" not in self.config["workspaces"]:
+            self.config["workspaces"]["list"] = []
+
+        self.config["workspaces"]["list"].append({"name": name, "path": path})
+        # If this is the first workspace, set it as active
+        if len(self.config["workspaces"]["list"]) == 1:
+            self.set_active_workspace_name(name) # This will call save_settings
+            return True # set_active_workspace_name already saved
+        return self.save_settings()
+
+    def remove_workspace(self, name: str) -> bool:
+        """Remove a workspace by its name."""
+        workspaces = self.get_workspaces()
+        updated_workspaces = [ws for ws in workspaces if ws['name'] != name]
+
+        if len(workspaces) == len(updated_workspaces):
+            logger.warning(f"Workspace with name '{name}' not found for removal.")
+            return False
+
+        self.config["workspaces"]["list"] = updated_workspaces
+
+        # If the removed workspace was active, clear the active workspace name
+        active_name = self.get_active_workspace_name()
+        if active_name == name:
+            self.config["workspaces"]["active_name"] = None
+
+        return self.save_settings()
+
+    def get_active_workspace_name(self) -> str | None:
+        """Get the name of the currently active workspace."""
+        return self.config.get("workspaces", {}).get("active_name", None)
+
+    def set_active_workspace_name(self, name: str | None) -> bool:
+        """Set the active workspace. Pass None to deactivate all."""
+        if 'workspaces' not in self.config:
+            self.config['workspaces'] = {'list': [], 'active_name': None, 'recent_workspaces_names': []}
+
+        if name is None:
+            self.config['workspaces']['active_name'] = None
+            logger.info("Active workspace cleared (set to None).")
+            # No need to add None to recents
+            return self.save_settings()
+
+        workspaces = self.get_workspaces() # Assuming this uses self.config
+        if any(ws['name'] == name for ws in workspaces):
+            self.config['workspaces']['active_name'] = name
+            self.add_to_recent_workspaces(name) # Add to recents when set active
+            logger.info(f"Active workspace set to: {name}")
+            return self.save_settings()
         
-        Args:
-            target (dict): The dictionary to update.
-            source (dict): The dictionary with updates.
-        """
-        for key, value in source.items():
-            if key in target and isinstance(target[key], dict) and isinstance(value, dict):
-                self._deep_update(target[key], value)
+        logger.warning(f"Attempted to set non-existent workspace '{name}' as active.")
+        return False
+
+    def get_workspace_path(self, workspace_name: str) -> str | None:
+        """Get the path of a workspace by its name."""
+        workspaces = self.get_workspaces()
+        for ws in workspaces:
+            if ws['name'] == workspace_name:
+                return ws['path']
+        logger.warning(f"Path not found for workspace: {workspace_name}")
+        return None
+
+    def _deep_update(self, target_dict, source_dict):
+        """Recursively update a dictionary with values from another dictionary."""
+        for key, value in source_dict.items():
+            if isinstance(value, dict) and key in target_dict and isinstance(target_dict[key], dict):
+                self._deep_update(target_dict[key], value)
             else:
-                target[key] = value
+                target_dict[key] = value
+
+    def get_recent_workspaces_names(self) -> list[str]:
+        """Returns a list of recent workspace names."""
+        return self.config.get('workspaces', {}).get('recent_workspaces_names', [])
+
+    def add_to_recent_workspaces(self, workspace_name: str):
+        """Adds a workspace name to the top of the recent list, managing size and duplicates."""
+        if 'workspaces' not in self.config:
+            self.config['workspaces'] = {}
+        if 'recent_workspaces_names' not in self.config['workspaces']:
+            self.config['workspaces']['recent_workspaces_names'] = []
+
+        recent_list = self.config['workspaces']['recent_workspaces_names']
+        
+        # Remove if already exists to move it to the top
+        if workspace_name in recent_list:
+            recent_list.remove(workspace_name)
+        
+        # Add to the beginning (most recent)
+        recent_list.insert(0, workspace_name)
+        
+        # Trim the list if it exceeds max size
+        self.config['workspaces']['recent_workspaces_names'] = recent_list[:self.MAX_RECENT_WORKSPACES]
+        logger.debug(f"Recent workspaces updated: {self.config['workspaces']['recent_workspaces_names']}")
+        # self.save() # Saving is handled by set_active_workspace_name or other higher-level calls
